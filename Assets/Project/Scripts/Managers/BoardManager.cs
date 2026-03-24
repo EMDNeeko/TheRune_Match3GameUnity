@@ -1,0 +1,627 @@
+using System.Collections.Generic;
+using System.Collections;
+using System.Linq;
+using Match3Game.Board;
+using Match3Game.Data;
+using Match3Game.Mechanics;
+using UnityEngine;
+
+namespace Match3Game.Managers
+{
+    public class BoardManager : MonoBehaviour
+    {
+        [Header("Board Configuration")]
+        public int Width = 8;
+        public int Height = 8;
+        public float Spacing = 1.2f; //distance between cells
+
+        [Header("Prefabs & Assets")]
+        public GameObject RunePrefab;
+        public Sprite[] RuneSprites;
+        public Sprite[] SpecialRuneSprites; //0: Bomb, 1: LB, 2:RB, 3:Meteor
+
+        [Header("Managers")]
+        public TestCombatManager combatManager;
+
+        private BoardData boardData;
+        private MatchDetector matchDetector;
+        private RuneView[,] runeViews; //show object
+
+        //xu ly input
+        private Vector2 startTouchPosition;
+        private Vector2 endTouchPosition;
+        private CellData selectedCell;
+        private float swipeThreshold = 50f;
+
+        void Start()
+        {
+            InitializeBoard();
+        }
+        private void InitializeBoard()
+        {
+            boardData = new BoardData();
+            boardData.Width = Width;
+            boardData.Height = Height;
+            boardData.initBoard();
+
+            matchDetector = new MatchDetector(boardData);
+            runeViews = new RuneView[Width, Height];
+
+            for (int x = 0; x < Width; x++)
+            {
+                for (int y = 0; y < Height; y++)
+                {
+                    SpawnRuneAt(x, y, true);
+                }
+            }
+        }
+
+        private void SpawnRuneAt(int x, int y, bool isInitialSpawn)
+        {
+            List<RuneType> availableTypes = new List<RuneType>
+            {
+                RuneType.Red, RuneType.Blue, RuneType.Green, RuneType.Yellow, RuneType.Orange, RuneType.Purple
+            };
+
+            if (isInitialSpawn)
+            {
+                if (x >= 2 && boardData.Grid[x - 1, y].CurrentRune.BaseType == boardData.Grid[x - 2, y].CurrentRune.BaseType)
+                {
+                    availableTypes.Remove(boardData.Grid[x - 1, y].CurrentRune.BaseType);
+                }
+                if (y >= 2 && boardData.Grid[x, y - 1].CurrentRune.BaseType == boardData.Grid[x, y - 2].CurrentRune.BaseType)
+                {
+                    availableTypes.Remove(boardData.Grid[x, y - 1].CurrentRune.BaseType);
+                }
+            }
+
+            RuneType chosenType = availableTypes[Random.Range(0, availableTypes.Count)];
+            RuneData newRune = new RuneData(chosenType);
+            boardData.Grid[x, y].SetRune(newRune);
+
+            Vector2 spawnPos = new Vector2(x * Spacing, (y + 5) * Spacing);
+            GameObject runeObj = Instantiate(RunePrefab, spawnPos, Quaternion.identity, this.transform);
+
+            RuneView view = runeObj.GetComponent<RuneView>();
+            view.Initialize(RuneSprites[(int)chosenType], spawnPos);
+            view.MoveToPosition(new Vector2(x * Spacing, y * Spacing));
+
+            runeViews[x, y] = view;
+        }
+
+        void Update()
+        {
+            if (boardData.CurrentState != BoardState.Idle)
+            {
+                return;
+            }
+            if (Input.GetMouseButtonDown(0))
+            {
+                startTouchPosition = Input.mousePosition;
+                selectedCell = GetCellFromMousePos();
+            }
+            else if (Input.GetMouseButtonUp(0) && selectedCell != null)
+            {
+                endTouchPosition = Input.mousePosition;
+                CalculateSwipe();
+            }
+        }
+
+        private CellData GetCellFromMousePos()
+        {
+            Vector2 mouseWorldPos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            int x = Mathf.RoundToInt(mouseWorldPos.x / Spacing);
+            int y = Mathf.RoundToInt(mouseWorldPos.y / Spacing);
+            return boardData.GetCell(x, y);
+        }
+
+        private void CalculateSwipe()
+        {
+            Vector2 swipeDelta = endTouchPosition - startTouchPosition;
+
+            //Swipe
+            if (swipeDelta.magnitude > swipeThreshold)
+            {
+                swipeDelta.Normalize();
+                int dirX = Mathf.RoundToInt(swipeDelta.x);
+                int dirY = Mathf.RoundToInt(swipeDelta.y);
+
+                //vuot 1 huong
+                if (Mathf.Abs(dirX) > Mathf.Abs(dirY))
+                {
+                    dirY = 0;
+                }
+                else
+                {
+                    dirX = 0;
+                }
+
+                CellData targetCell = boardData.GetCell(selectedCell.X + dirX, selectedCell.Y + dirY);
+
+                //Active special LB & Bomb
+                if (targetCell != null)
+                {
+                    SpecialRuneType selectedType = selectedCell.CurrentRune.SpecialType;
+                    SpecialRuneType targetType = targetCell.CurrentRune.SpecialType;
+
+                    // Nếu người chơi cầm đá LineBlast hoặc Bomb và vuốt
+                    if (selectedType == SpecialRuneType.LineBlast || selectedType == SpecialRuneType.Bomb)
+                    {
+                        StartCoroutine(SwipeAndExplodeSpecial(selectedCell, targetCell, selectedCell));
+                    }
+                    // Nếu người chơi cầm đá thường vuốt VÀO đá LineBlast hoặc Bomb
+                    else if (targetType == SpecialRuneType.LineBlast || targetType == SpecialRuneType.Bomb)
+                    {
+                        StartCoroutine(SwipeAndExplodeSpecial(selectedCell, targetCell, targetCell));
+                    }
+                    // Các trường hợp còn lại (bao gồm cả vuốt Meteor/Rainbow) thì kiểm tra tổ hợp bình thường
+                    else
+                    {
+                        StartCoroutine(SwapAndCheck(selectedCell, targetCell));
+                    }
+                }
+            }
+            else
+            {
+                if (selectedCell != null && selectedCell.CurrentRune != null)
+                {
+                    SpecialRuneType spType = selectedCell.CurrentRune.SpecialType;
+
+                    // Chỉ kích hoạt khi bấm vào Meteor hoặc Rainbow
+                    if (spType == SpecialRuneType.Meteor || spType == SpecialRuneType.Rainbow)
+                    {
+                        StartCoroutine(ExplodeSpecialRune(selectedCell));
+                    }
+                }
+            }
+            selectedCell = null;
+        }
+        //swap + to hop
+        private IEnumerator SwapAndCheck(CellData cellA, CellData cellB)
+        {
+            boardData.CurrentState = BoardState.Executing;
+
+            SwapVisualsAndData(cellA, cellB);
+            yield return new WaitForSeconds(0.3f); // anim swap
+
+            //goi luot bat dau
+            GetComponent<TestCombatManager>()?.StartAction();
+
+            List<MatchResult> matches = matchDetector.FindAllMatches();
+
+            if (matches.Count > 0)
+            {
+                foreach (var match in matches)
+                {
+                    // Check which swapped cell is actually part of this specific match
+                    bool involvesCellB = match.MatchedCells.Any(c => c.X == cellB.X && c.Y == cellB.Y);
+                    bool involvesCellA = match.MatchedCells.Any(c => c.X == cellA.X && c.Y == cellA.Y);
+
+                    if (involvesCellB)
+                    {
+                        match.SpawnCell = cellB;
+                    }
+                    else if (involvesCellA)
+                    {
+                        match.SpawnCell = cellA;
+                    }
+                }
+                StartCoroutine(ProcessMatchesAndRefill(matches));
+            }
+            else
+            {
+                SwapVisualsAndData(cellA, cellB); //dat lai vi tri
+                yield return new WaitForSeconds(0.3f);
+                boardData.CurrentState = BoardState.Idle;
+            }
+        }
+
+        private IEnumerator SwipeAndExplodeSpecial(CellData cellA, CellData cellB, CellData originalSpecialCell)
+        {
+            boardData.CurrentState = BoardState.Executing;
+
+            // 1. Đổi vị trí 2 viên đá (Cả Data và Visual)
+            SwapVisualsAndData(cellA, cellB);
+            yield return new WaitForSeconds(0.3f); // Đợi đá trượt sang ô mới
+
+            // 2. Xác định vị trí MỚI của đá đặc biệt sau khi đã hoán đổi
+            CellData explosionCenter = (originalSpecialCell == cellA) ? cellB : cellA;
+
+            // 3. Gọi hàm kích nổ mượn lại logic của ExplodeSpecialRune
+            yield return StartCoroutine(ExplodeSpecialRune(explosionCenter));
+        }
+
+        private void SwapVisualsAndData(CellData cellA, CellData cellB)
+        {
+            RuneData tmpRune = cellA.CurrentRune;
+            cellA.SetRune(cellB.CurrentRune);
+            cellB.SetRune(tmpRune);
+
+            RuneView tmpView = runeViews[cellA.X, cellA.Y];
+            runeViews[cellA.X, cellA.Y] = runeViews[cellB.X, cellB.Y];
+            runeViews[cellB.X, cellB.Y] = tmpView;
+
+            //anim
+            runeViews[cellA.X, cellA.Y].MoveToPosition(new Vector2(cellA.X * Spacing, cellA.Y * Spacing));
+            runeViews[cellB.X, cellB.Y].MoveToPosition(new Vector2(cellB.X * Spacing, cellB.Y * Spacing));
+        }
+
+        private IEnumerator ProcessMatchesAndRefill(List<MatchResult> matches)
+        {
+            // 1. Gộp tất cả các ô cần phá hủy vào một danh sách
+            List<CellData> cellsToDestroy = new List<CellData>();
+
+            foreach (var match in matches)
+            {
+                // Truyền data tổ hợp gốc cho tracker 
+                if (combatManager != null)
+                {
+                    combatManager.ProcessMatchResult(match);
+                }
+
+                foreach (var cell in match.MatchedCells)
+                {
+                    if (!cellsToDestroy.Contains(cell))
+                    {
+                        cellsToDestroy.Add(cell);
+                    }
+                }
+            }
+
+            // 2. TÌM VÀ KÍCH HOẠT ĐÁ ĐẶC BIỆT NẰM TRONG TỔ HỢP (Phản ứng dây chuyền)
+            // Dùng vòng lặp for thay vì foreach vì danh sách cellsToDestroy có thể dài ra khi nổ lây
+            // for (int i = 0; i < cellsToDestroy.Count; i++)
+            // {
+            //     CellData currentCell = cellsToDestroy[i];
+
+            //     // Nếu ô này có chứa đá đặc biệt (Bomb, Line Blast, Meteor...)
+            //     if (currentCell.CurrentRune != null && currentCell.CurrentRune.SpecialType != SpecialRuneType.None && currentCell.CurrentRune.SpecialType != SpecialRuneType.Rainbow)
+            //     {
+            //         // Lấy danh sách các ô bị nổ lây bởi viên đá đặc biệt này
+            //         List<CellData> affectedCells = GetSpecialRuneAffectedCells(currentCell, currentCell.CurrentRune.SpecialType);
+
+            //         foreach (var affected in affectedCells)
+            //         {
+            //             // Thêm ô nổ lây vào danh sách phá hủy chung
+            //             if (!cellsToDestroy.Contains(affected) && affected.CurrentRune != null)
+            //             {
+            //                 cellsToDestroy.Add(affected);
+
+            //                 // Báo cho Combat Manager cộng điểm viên đá bị nổ lây (True Damage, Hồi máu...)
+            //                 if (combatManager != null)
+            //                 {
+            //                     combatManager.ProcessingSingleRune(affected.CurrentRune.BaseType);
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
+
+            // 3. Thực hiện phá hủy toàn bộ danh sách (cả tổ hợp gốc + các ô nổ lây)
+            foreach (var cell in cellsToDestroy)
+            {
+                int x = cell.X;
+                int y = cell.Y;
+
+                boardData.Grid[x, y].ClearRune();
+                if (runeViews[x, y] != null)
+                {
+                    Destroy(runeViews[x, y].gameObject);
+                    runeViews[x, y] = null;
+                }
+            }
+
+            // 4. Tạo đá đặc biệt mới (nếu tổ hợp gốc thỏa mãn điều kiện tạo Bomb/Line/...)
+            HashSet<CellData> usedSpawnCells = new HashSet<CellData>();
+            foreach (var match in matches)
+            {
+                if (match.ResultingSpecialRune != SpecialRuneType.None)
+                {
+                    CellData targetSpawnCell = match.SpawnCell;
+
+                    // Nếu SpawnCell chưa được chỉ định, hoặc Ô ĐÓ ĐÃ BỊ CHIẾM bởi một đá đặc biệt khác trong combo này
+                    if (targetSpawnCell == null || usedSpawnCells.Contains(targetSpawnCell))
+                    {
+                        targetSpawnCell = null; // Reset lại để tìm nhà mới
+
+                        // Lục tìm một ô khác còn trống trong cùng tổ hợp đó
+                        foreach (var cell in match.MatchedCells)
+                        {
+                            if (!usedSpawnCells.Contains(cell))
+                            {
+                                targetSpawnCell = cell;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Nếu đã tìm được ô an toàn thì mới tiến hành tạo đá
+                    if (targetSpawnCell != null)
+                    {
+                        usedSpawnCells.Add(targetSpawnCell); // Đánh dấu ô này đã có chủ
+                        SpawnSpecialRuneAt(targetSpawnCell.X, targetSpawnCell.Y, match.ResultingSpecialRune, match.MatchedRuneType);
+                    }
+                }
+            }
+
+            yield return new WaitForSeconds(0.2f);
+
+            // 5. Rớt đá
+            ApplyGravity();
+            yield return new WaitForSeconds(0.4f);
+
+            // 6. Tìm match mới (Cascades)
+            List<MatchResult> newMatches = matchDetector.FindAllMatches();
+            if (newMatches.Count > 0)
+            {
+                StartCoroutine(ProcessMatchesAndRefill(newMatches));
+            }
+            else
+            {
+                boardData.CurrentState = BoardState.Idle;
+                if (combatManager != null)
+                {
+                    combatManager.EndTurn();
+                }
+            }
+        }
+
+        private IEnumerator ExplodeSpecialRune(CellData originCell)
+        {
+            boardData.CurrentState = BoardState.Executing;
+            TestCombatManager combatManager = GetComponent<TestCombatManager>();
+            combatManager?.StartAction();
+
+            //Hang doi no day chuyen
+            Queue<CellData> specialRunesToExplode = new Queue<CellData>();
+            specialRunesToExplode.Enqueue(originCell);
+
+            List<CellData> cellsToDestroy = new List<CellData>();
+            HashSet<CellData> processedSpecials = new HashSet<CellData>();
+
+            // 2. Quét toàn bộ vùng ảnh hưởng của chuỗi nổ
+            while (specialRunesToExplode.Count > 0)
+            {
+                CellData currentSpecial = specialRunesToExplode.Dequeue();
+
+                // Bỏ qua nếu viên đá đặc biệt này đã nổ rồi
+                if (processedSpecials.Contains(currentSpecial)) continue;
+                processedSpecials.Add(currentSpecial);
+
+                // Đảm bảo viên đá gốc cũng nằm trong danh sách xoá
+                if (!cellsToDestroy.Contains(currentSpecial))
+                {
+                    cellsToDestroy.Add(currentSpecial);
+                }
+
+                // CHỈ GỌI HÀM NÀY ĐÚNG 1 LẦN CHO MỖI VIÊN ĐÁ: Vùng Random của Meteor sẽ được chốt tại đây
+                List<CellData> affectedCells = GetSpecialRuneAffectedCells(currentSpecial, currentSpecial.CurrentRune.SpecialType);
+
+                foreach (var cell in affectedCells)
+                {
+                    if (cell.CurrentRune != null)
+                    {
+                        // Thêm ô bị ảnh hưởng vào danh sách xoá tổng
+                        if (!cellsToDestroy.Contains(cell))
+                        {
+                            cellsToDestroy.Add(cell);
+                        }
+
+                        // NẾU Ô BỊ LAN TỚI LÀ ĐÁ ĐẶC BIỆT -> Đưa vào hàng đợi để nổ tiếp
+                        if (cell.CurrentRune.SpecialType != SpecialRuneType.None &&
+                            cell.CurrentRune.SpecialType != SpecialRuneType.Rainbow && // Đề phòng Rainbow gây nhiễu
+                            !processedSpecials.Contains(cell) &&
+                            !specialRunesToExplode.Contains(cell))
+                        {
+                            specialRunesToExplode.Enqueue(cell);
+                        }
+                    }
+                }
+            }
+
+            foreach (var cell in cellsToDestroy)
+            {
+                if (cell.CurrentRune != null)
+                {
+                    combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor);
+
+                    cell.ClearRune();
+                    if (runeViews[cell.X, cell.Y] != null)
+                    {
+                        Destroy(runeViews[cell.X, cell.Y].gameObject);
+                        runeViews[cell.X, cell.Y] = null;
+                    }
+                }
+            }
+
+            yield return new WaitForSeconds(0.3f);
+            ApplyGravity();
+            yield return new WaitForSeconds(0.4f);
+
+            List<MatchResult> newMatches = matchDetector.FindAllMatches();
+            if (newMatches.Count > 0)
+            {
+                StartCoroutine(ProcessMatchesAndRefill(newMatches));
+            }
+            else
+            {
+                boardData.CurrentState = BoardState.Idle;
+                combatManager?.EndTurn();
+            }
+        }
+
+        private List<CellData> GetSpecialRuneAffectedCells(CellData origin, SpecialRuneType type)
+        {
+            List<CellData> affected = new List<CellData>();
+            int ox = origin.X;
+            int oy = origin.Y;
+
+            if (type == SpecialRuneType.LineBlast)
+            {
+                for (int x = 0; x < Width; x++)
+                {
+                    if (boardData.Grid[x, oy].CurrentRune != null)
+                    {
+                        affected.Add(boardData.Grid[x, oy]);
+                    }
+                }
+                for (int y = 0; y < Height; y++)
+                {
+                    if (boardData.Grid[ox, y].CurrentRune != null && !affected.Contains(boardData.Grid[ox, y]))
+                    {
+                        affected.Add(boardData.Grid[ox, y]);
+                    }
+                }
+            }
+
+            else if (type == SpecialRuneType.Bomb)
+            {
+                // Vùng nổ 3x3 cơ bản
+                for (int x = ox - 1; x <= ox + 1; x++)
+                {
+                    for (int y = oy - 1; y <= oy + 1; y++)
+                    {
+                        if (x >= 0 && x < Width && y >= 0 && y < Height && boardData.Grid[x, y].CurrentRune != null)
+                        {
+                            affected.Add(boardData.Grid[x, y]);
+                        }
+                    }
+                }
+
+                // Các tia nổ chữ thập mở rộng (+2)
+                if (ox - 2 >= 0 && boardData.Grid[ox - 2, oy].CurrentRune != null)
+                    affected.Add(boardData.Grid[ox - 2, oy]);
+
+                // ---> ĐÃ SỬA DÒNG NÀY: Đổi (ox + 2 >= 0) thành (ox + 2 < Width) <---
+                if (ox + 2 < Width && boardData.Grid[ox + 2, oy].CurrentRune != null)
+                    affected.Add(boardData.Grid[ox + 2, oy]);
+
+                if (oy - 2 >= 0 && boardData.Grid[ox, oy - 2].CurrentRune != null)
+                    affected.Add(boardData.Grid[ox, oy - 2]);
+
+                if (oy + 2 < Height && boardData.Grid[ox, oy + 2].CurrentRune != null)
+                    affected.Add(boardData.Grid[ox, oy + 2]);
+            }
+
+            else if (type == SpecialRuneType.Meteor)
+            {
+                //2 Random 2x2
+                for (int i = 0; i < 2; i++)
+                {
+                    int rx = Random.Range(0, Width - 1);
+                    int ry = Random.Range(0, Height - 1);
+                    for (int x = rx; x <= rx + 1; x++)
+                    {
+                        for (int y = ry; y <= ry + 1; y++)
+                        {
+                            if (boardData.Grid[x, y].CurrentRune != null && !affected.Contains(boardData.Grid[x, y]))
+                            {
+                                affected.Add(boardData.Grid[x, y]);
+                            }
+                        }
+                    }
+                }
+                if (!affected.Contains(origin))
+                {
+                    affected.Add(origin);
+                }
+            }
+
+            else if (type == SpecialRuneType.Rainbow)
+            {
+                //thu thap toan bo da chi so uu tien
+                for (int x = 0; x < Width; x++)
+                {
+                    for (int y = 0; y < Height; y++)
+                    {
+                        if (boardData.Grid[x, y].CurrentRune != null && boardData.Grid[x, y].CurrentRune.BaseType == RuneType.Red)
+                        {
+                            affected.Add(boardData.Grid[x, y]);
+                        }
+                    }
+                    if (!affected.Contains(origin))
+                    {
+                        affected.Add(origin);
+                    }
+                }
+            }
+
+            return affected;
+        }
+        private void SpawnSpecialRuneAt(int x, int y, SpecialRuneType specialType, RuneType baseType)
+        {
+            // Nếu tại vị trí này đang có một hình ảnh chưa bị hủy, hãy hủy nó trước khi ghi đè!
+            if (runeViews[x, y] != null)
+            {
+                Destroy(runeViews[x, y].gameObject);
+                runeViews[x, y] = null;
+            }
+            // 1. Ánh xạ sang BaseType mới để tránh bị match nhầm
+            RuneType newBaseType = RuneType.None;
+            if (specialType == SpecialRuneType.LineBlast) newBaseType = RuneType.SpecialLineBlast;
+            else if (specialType == SpecialRuneType.Bomb) newBaseType = RuneType.SpecialBomb;
+            else if (specialType == SpecialRuneType.Meteor) newBaseType = RuneType.SpecialMeteor;
+            else if (specialType == SpecialRuneType.Rainbow) newBaseType = RuneType.SpecialRainbow;
+
+            // 2. Khởi tạo dữ liệu đá
+            RuneData specialRune = new RuneData(newBaseType);
+            specialRune.SpecialType = specialType;
+            specialRune.OriginalColor = baseType; // Lưu lại màu gốc
+            boardData.Grid[x, y].SetRune(specialRune);
+
+            Vector2 pos = new Vector2(x * Spacing, y * Spacing);
+            GameObject runeObj = Instantiate(RunePrefab, pos, Quaternion.identity, this.transform);
+            RuneView view = runeObj.GetComponent<RuneView>();
+
+            int specialIndex = (int)specialType - 1; // Vì enum SpecialRuneType có None ở vị trí 0
+            if (SpecialRuneSprites != null && SpecialRuneSprites.Length > specialIndex && SpecialRuneSprites[specialIndex] != null)
+            {
+                view.Initialize(SpecialRuneSprites[specialIndex], pos);
+            }
+            else
+            {
+                view.Initialize(RuneSprites[(int)baseType], pos); // Fallback
+            }
+
+            runeViews[x, y] = view;
+
+            Debug.Log($"Created Special Rune Type: {specialType} in ({x}, {y})");
+        }
+
+        private void ApplyGravity()
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                for (int y = 0; y < Height; y++)
+                {
+                    if (boardData.Grid[x, y].isEmpty())
+                    {
+                        for (int upperY = y + 1; upperY < Height; upperY++)
+                        {
+                            if (!boardData.Grid[x, upperY].isEmpty())
+                            {
+                                boardData.Grid[x, y].SetRune(boardData.Grid[x, upperY].CurrentRune);
+                                boardData.Grid[x, upperY].ClearRune();
+
+                                runeViews[x, y] = runeViews[x, upperY];
+                                runeViews[x, upperY] = null;
+                                runeViews[x, y].MoveToPosition(new Vector2(x * Spacing, y * Spacing));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            for (int x = 0; x < Width; x++)
+            {
+                for (int y = Height - 1; y >= 0; y--)
+                {
+                    if (boardData.Grid[x, y].isEmpty())
+                    {
+                        SpawnRuneAt(x, y, false);
+                    }
+                }
+            }
+        }
+    }
+}
