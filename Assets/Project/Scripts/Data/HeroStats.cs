@@ -8,6 +8,8 @@ namespace Match3Game.Data
         public float PhysicalDamage;
         public float MagicalDamage;
         public float Defense;
+        public float MaxMana;
+        public float CurrentMana;
 
         //Regen and tank
         public float Shield;
@@ -22,6 +24,7 @@ namespace Match3Game.Data
         public float LifeSteal;
         public float SpellVamp;
         public float CooldownReduction;
+        public float DamageAmplification;
     }
 }
 // public class HeroStats

@@ -11,7 +11,8 @@ public enum BoardState
 {
     Idle,
     Executing,
-    Unstable
+    Unstable,
+    SkillTargeting
 }
 
 public enum SkillType
@@ -41,10 +42,14 @@ public enum SpecialRuneType
 
 public enum RuneEffect
 {
-    None, Frozen, Burn, Nullified
+    None, Frozen, Burn, Nullified, Empowered, PoisonSpread, Poison
 }
 
 public enum MatchType
 {
     None, Match3Line, Match4Line, Match4Square, Match5Line, Match5Cross, Match6Plus
+}
+public enum StatusType
+{
+    None, Burn, Poison, Vulnerable, Stun, Silence, ReducedHealing, Unstoppable, Immortal
 }

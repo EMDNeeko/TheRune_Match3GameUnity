@@ -1,3 +1,4 @@
+using UnityEngine;
 using Match3Game.Data;
 
 namespace Match3Game.Entities.Heroes
@@ -13,6 +14,7 @@ namespace Match3Game.Entities.Heroes
             Stats = initStats;
             Stats.CurrentHP = Stats.MaxHP;
             CurrentState = Herostate.Combat;
+            Stats.CurrentMana = 0;
         }
 
         public virtual void TakeDamage(float incomingDmg, DamageType type)
@@ -51,12 +53,20 @@ namespace Match3Game.Entities.Heroes
             //check if ded
             if (Stats.CurrentHP <= 0)
             {
+                Stats.CurrentHP = 0;
                 Die();
             }
         }
 
+        //Poisoned and Burned Rune
+        public virtual void ApplyStatus(StatusType status, int durationRounds)
+        {
+            Debug.Log($"{HeroName} was {status} in {durationRounds} rounds");
+        }
+
         protected virtual void Die()
         {
+            Debug.Log("Hero da tu tran");
             CurrentState = Herostate.Fallen;
         }
 

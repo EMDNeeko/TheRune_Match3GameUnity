@@ -23,6 +23,12 @@ namespace Match3Game.Managers
         [Header("Managers")]
         public TestCombatManager combatManager;
 
+        [Header("Skill Targeting")]
+        public SkillType pendingSkillType;
+        private CellData targetedCell;
+        public GameObject highlightPrefab;
+        private GameObject currentHighlight;
+
         private BoardData boardData;
         private MatchDetector matchDetector;
         private RuneView[,] runeViews; //show object
@@ -88,9 +94,51 @@ namespace Match3Game.Managers
 
             runeViews[x, y] = view;
         }
+        public CellData GetCell(int x, int y)
+        {
+            return boardData.GetCell(x, y);
+        }
+        public void EnterSkillTargetingMode(SkillType skill)
+        {
+            boardData.CurrentState = BoardState.SkillTargeting;
+            pendingSkillType = skill;
+            targetedCell = null;
+        }
+        public void ExitSkillTargetingMode()
+        {
+            boardData.CurrentState = BoardState.Idle;
+            if (currentHighlight != null) Destroy(currentHighlight);
+        }
+        public CellData GetTargetedCell()
+        {
+            return targetedCell;
+        }
 
         void Update()
         {
+            // Nếu CombatManager tồn tại và ĐANG KHÔNG PHẢI LƯỢT CỦA NGƯỜI CHƠI -> Khóa bảng (bỏ qua mọi thao tác)
+            if (combatManager != null && !combatManager.isPlayerTurn)
+            {
+                return;
+            }
+            if (boardData.CurrentState == BoardState.SkillTargeting)
+            {
+                if (Input.GetMouseButtonDown(0))
+                {
+                    CellData clickedCell = GetCellFromMousePos();
+                    if (clickedCell != null)
+                    {
+                        targetedCell = clickedCell;
+
+                        // Lấy form hiện tại của Ramses từ CombatManager
+                        var ramses = GetComponent<TestCombatManager>().playerHero as Entities.Heroes.Ramses;
+                        var form = ramses != null ? ramses.CurrentForm : Entities.Heroes.RamsesForm.Normal;
+
+                        ShowHighlightArea(clickedCell, pendingSkillType, form);
+                    }
+                }
+                return;
+            }
             if (boardData.CurrentState != BoardState.Idle)
             {
                 return;
@@ -104,6 +152,113 @@ namespace Match3Game.Managers
             {
                 endTouchPosition = Input.mousePosition;
                 CalculateSwipe();
+            }
+        }
+        public List<CellData> GetCellsInRange(CellData center, int rangeX, int rangeY)
+        {
+            List<CellData> res = new List<CellData>();
+            for (int x = center.X - rangeX; x <= center.X + rangeX; x++)
+            {
+                for (int y = center.Y - rangeY; y <= center.Y + rangeY; y++)
+                {
+                    CellData cell = boardData.GetCell(x, y);
+                    if (cell != null) res.Add(cell);
+                }
+            }
+            return res;
+        }
+        private void ShowHighlightArea(CellData centerCell, SkillType skill, Entities.Heroes.RamsesForm currentForm)
+        {
+            if (currentHighlight != null) Destroy(currentHighlight);
+
+            Vector2 pos = new Vector2(centerCell.X * Spacing, centerCell.Y * Spacing);
+            currentHighlight = Instantiate(highlightPrefab, pos, Quaternion.identity);
+
+            //scale vung chon theo skill
+            if (skill == SkillType.Active)
+            {
+                if (currentForm == Entities.Heroes.RamsesForm.Normal)
+                {
+                    currentHighlight.transform.localScale = new Vector3(3 * Spacing, 3 * Spacing, 1);
+                }
+                else
+                {
+                    currentHighlight.transform.localScale = new Vector3(5 * Spacing, 5 * Spacing, 1);
+                }
+
+            }
+            else if (skill == SkillType.Ultimate && currentForm == Entities.Heroes.RamsesForm.Burning)
+            {
+                // Highlight 3 cột dọc chạy dài hết bảng
+                currentHighlight.transform.localScale = new Vector3(3 * Spacing, Height * Spacing, 1);
+
+                // Cần dời vị trí tâm (Y) ra giữa bảng để nó bao trọn từ dưới lên trên
+                // Trừ đi 0.5f Spacing để highlight không bị lố lên trên cùng
+                float centerY = ((Height - 1) / 2f) * Spacing;
+                currentHighlight.transform.position = new Vector2(centerCell.X * Spacing, centerY);
+            }
+
+        }
+        public void DesTroyAreaAndRefill(List<CellData> cellsToCollect, List<CellData> cellsToDestroy, float efficiencyMultiplier = 1f)
+        {
+            boardData.CurrentState = BoardState.Executing;
+            TestCombatManager combatManager = GetComponent<TestCombatManager>();
+
+            // 1. Xử lý nhóm Thu Thập (Collect)
+            foreach (var cell in cellsToCollect)
+            {
+                if (cell.CurrentRune != null)
+                {
+                    if (cell.CurrentRune.SpecialType != SpecialRuneType.None)
+                    {
+                        // Kích hoạt đá đặc biệt
+                        StartCoroutine(ExplodeSpecialRune(cell));
+                    }
+                    else
+                    {
+                        // Thu thập đá cơ bản và truyền hiệu quả multiplier
+                        combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, cell.CurrentRune.GetEfficiency() * efficiencyMultiplier);
+                        ClearCell(cell);
+                    }
+                }
+            }
+
+            // 2. Xử lý nhóm Phá Huỷ (Destroy) - Không kích hoạt sát thương hay hiệu ứng
+            foreach (var cell in cellsToDestroy)
+            {
+                if (cell.CurrentRune != null && !cellsToCollect.Contains(cell))
+                {
+                    ClearCell(cell);
+                }
+            }
+
+            // 3. Chờ đá rơi xuống
+            StartCoroutine(WaitAndApplyGravity());
+        }
+        private void ClearCell(CellData cell)
+        {
+            cell.ClearRune();
+            if (runeViews[cell.X, cell.Y] != null)
+            {
+                Destroy(runeViews[cell.X, cell.Y].gameObject);
+                runeViews[cell.X, cell.Y] = null;
+            }
+        }
+
+        private IEnumerator WaitAndApplyGravity()
+        {
+            yield return new WaitForSeconds(0.3f);
+            ApplyGravity();
+            yield return new WaitForSeconds(0.4f);
+
+            List<MatchResult> newMatches = matchDetector.FindAllMatches();
+            if (newMatches.Count > 0)
+            {
+                StartCoroutine(ProcessMatchesAndRefill(newMatches));
+            }
+            else
+            {
+                boardData.CurrentState = BoardState.Idle;
             }
         }
 
@@ -298,7 +453,34 @@ namespace Match3Game.Managers
             // }
 
             // 3. Thực hiện phá hủy toàn bộ danh sách (cả tổ hợp gốc + các ô nổ lây)
+            List<CellData> actualDestroyList = new List<CellData>();
             foreach (var cell in cellsToDestroy)
+            {
+                if (cell.CurrentRune != null)
+                {
+                    // break ice
+                    if (cell.CurrentRune.CurrentEffect == RuneEffect.Frozen && cell.CurrentRune.effectStacks > 0)
+                    {
+                        cell.CurrentRune.effectStacks--;
+                        if (cell.CurrentRune.effectStacks <= 0)
+                        {
+                            cell.CurrentRune.CurrentEffect = RuneEffect.None;
+                        }
+
+                        if (combatManager != null)
+                        {
+                            combatManager.ProcessingSingleRune(cell.CurrentRune.OriginalColor);
+                        }
+                    }
+                    else
+                    {
+                        TriggerDestroyEffects(cell.CurrentRune);
+                        actualDestroyList.Add(cell);
+                    }
+                }
+            }
+
+            foreach (var cell in actualDestroyList)
             {
                 int x = cell.X;
                 int y = cell.Y;
@@ -365,6 +547,18 @@ namespace Match3Game.Managers
                 }
             }
         }
+        private void TriggerDestroyEffects(RuneData rune)
+        {
+            if (rune == null) return;
+            if (rune.CurrentEffect == RuneEffect.Burn)
+            {
+                Debug.Log("Da chay no, gay dmg va gan thieu dot");
+            }
+            else if (rune.CurrentEffect == RuneEffect.Poison || rune.CurrentEffect == RuneEffect.PoisonSpread)
+            {
+                Debug.Log("Da nhiem doc, gay dmg chuan");
+            }
+        }
 
         private IEnumerator ExplodeSpecialRune(CellData originCell)
         {
@@ -409,7 +603,6 @@ namespace Match3Game.Managers
 
                         // NẾU Ô BỊ LAN TỚI LÀ ĐÁ ĐẶC BIỆT -> Đưa vào hàng đợi để nổ tiếp
                         if (cell.CurrentRune.SpecialType != SpecialRuneType.None &&
-                            cell.CurrentRune.SpecialType != SpecialRuneType.Rainbow && // Đề phòng Rainbow gây nhiễu
                             !processedSpecials.Contains(cell) &&
                             !specialRunesToExplode.Contains(cell))
                         {
@@ -529,20 +722,23 @@ namespace Match3Game.Managers
 
             else if (type == SpecialRuneType.Rainbow)
             {
-                //thu thap toan bo da chi so uu tien
+                // Chọn ngẫu nhiên một màu (Giả sử bạn có 4 màu cơ bản từ 0 đến 3)
+                RuneType randomColor = (RuneType)UnityEngine.Random.Range(0, 4);
+
+                // Thu thập toàn bộ đá có màu ngẫu nhiên vừa chọn
                 for (int x = 0; x < Width; x++)
                 {
                     for (int y = 0; y < Height; y++)
                     {
-                        if (boardData.Grid[x, y].CurrentRune != null && boardData.Grid[x, y].CurrentRune.BaseType == RuneType.Red)
+                        if (boardData.Grid[x, y].CurrentRune != null && boardData.Grid[x, y].CurrentRune.BaseType == randomColor)
                         {
                             affected.Add(boardData.Grid[x, y]);
                         }
                     }
-                    if (!affected.Contains(origin))
-                    {
-                        affected.Add(origin);
-                    }
+                }
+                if (!affected.Contains(origin))
+                {
+                    affected.Add(origin);
                 }
             }
 
@@ -598,7 +794,7 @@ namespace Match3Game.Managers
                     {
                         for (int upperY = y + 1; upperY < Height; upperY++)
                         {
-                            if (!boardData.Grid[x, upperY].isEmpty())
+                            if (!boardData.Grid[x, upperY].isEmpty() && boardData.Grid[x, upperY].CurrentRune.isMovable())
                             {
                                 boardData.Grid[x, y].SetRune(boardData.Grid[x, upperY].CurrentRune);
                                 boardData.Grid[x, upperY].ClearRune();
