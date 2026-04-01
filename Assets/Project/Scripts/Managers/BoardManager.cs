@@ -209,6 +209,7 @@ namespace Match3Game.Managers
             {
                 if (cell.CurrentRune != null)
                 {
+                    Vector2 worldPos = new Vector2(cell.X * Spacing, cell.Y * Spacing);
                     if (cell.CurrentRune.SpecialType != SpecialRuneType.None)
                     {
                         // Kích hoạt đá đặc biệt
@@ -217,7 +218,7 @@ namespace Match3Game.Managers
                     else
                     {
                         // Thu thập đá cơ bản và truyền hiệu quả multiplier
-                        combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, cell.CurrentRune.GetEfficiency() * efficiencyMultiplier);
+                        combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos, cell.CurrentRune.GetEfficiency() * efficiencyMultiplier);
                         ClearCell(cell);
                     }
                 }
@@ -408,10 +409,12 @@ namespace Match3Game.Managers
 
             foreach (var match in matches)
             {
+                CellData targetCell = match.SpawnCell != null ? match.SpawnCell : match.MatchedCells[0];
+                Vector2 popupPos = new Vector2(targetCell.X * Spacing, targetCell.Y * Spacing);
                 // Truyền data tổ hợp gốc cho tracker 
                 if (combatManager != null)
                 {
-                    combatManager.ProcessMatchResult(match);
+                    combatManager.ProcessMatchResult(match, popupPos);
                 }
 
                 foreach (var cell in match.MatchedCells)
@@ -469,7 +472,8 @@ namespace Match3Game.Managers
 
                         if (combatManager != null)
                         {
-                            combatManager.ProcessingSingleRune(cell.CurrentRune.OriginalColor);
+                            Vector2 worldPos = new Vector2(cell.X * Spacing, cell.Y * Spacing);
+                            combatManager.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos);
                         }
                     }
                     else
@@ -616,7 +620,8 @@ namespace Match3Game.Managers
             {
                 if (cell.CurrentRune != null)
                 {
-                    combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor);
+                    Vector2 worldPos = new Vector2(cell.X * Spacing, cell.Y * Spacing);
+                    combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos);
 
                     cell.ClearRune();
                     if (runeViews[cell.X, cell.Y] != null)

@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Match3Game.Data;
 using Match3Game.Entities.Heroes;
+using Match3Game.Mechanics;
 
 namespace Match3Game.Managers
 {
@@ -52,6 +53,10 @@ namespace Match3Game.Managers
         [Header("Boss Config")]
         private float bossBaseDmg = 100f;
         private float bossDmgIncrement = 10f;
+
+        [Header("VFX - Floating Number")]
+        public GameObject floatingTextPrefab;
+        public Transform canvasTransform;
 
 
         private bool hasGainedExtraTurnThisAction = false;
@@ -214,7 +219,7 @@ namespace Match3Game.Managers
         //         ramses.CastUltimateSkill(boardManager);
         //     }
         // }
-        public void ProcessMatchResult(MatchResult match)
+        public void ProcessMatchResult(MatchResult match, Vector2 pos)
         {
             if (playerHero == null || enemyBoss == null) return;
             float comboEfficiency = CalculateMatchEfficiency(match);
@@ -228,19 +233,19 @@ namespace Match3Game.Managers
             {
                 case RuneType.Red:
                 case RuneType.Purple:
-                    ProcessRedRune(match.TypeOfMatch, comboEfficiency);
+                    ProcessRedRune(match.TypeOfMatch, comboEfficiency, pos);
                     break;
                 case RuneType.Blue:
-                    ProcessBlueRune(match.TypeOfMatch, comboEfficiency);
+                    ProcessBlueRune(match.TypeOfMatch, comboEfficiency, pos);
                     break;
                 case RuneType.Green:
-                    ProcessGreenRune(match.TypeOfMatch, comboEfficiency);
+                    ProcessGreenRune(match.TypeOfMatch, comboEfficiency, pos);
                     break;
                 case RuneType.Yellow:
-                    ProcessYellowRune(match.TypeOfMatch, comboEfficiency);
+                    ProcessYellowRune(match.TypeOfMatch, comboEfficiency, pos);
                     break;
                 case RuneType.Orange:
-                    ProcessOrangeRune(match.TypeOfMatch, comboEfficiency);
+                    ProcessOrangeRune(match.TypeOfMatch, comboEfficiency, pos);
                     break;
                     // case RuneType.Purple:
                     //     ProcessPurpleRune(match.TypeOfMatch, comboEfficiency);
@@ -249,37 +254,45 @@ namespace Match3Game.Managers
             UpdateUI();
         }
 
-        public void ProcessingSingleRune(RuneType type, float efficiency = 1f)
+        public void ProcessingSingleRune(RuneType type, Vector2 pos, float efficiency = 1f)
         {
             if (playerHero == null || enemyBoss == null) return;
+            float val = 0;
+            Color color = Color.white;
 
             switch (type)
             {
                 case RuneType.Red:
                 case RuneType.Purple:
                     float dmg = (playerHero.Stats.PhysicalDamage * 0.2f) * efficiency;
+                    val = dmg; color = Color.red;
                     enemyBoss.TakeDamage(dmg, DamageType.Physical);
                     RecordDamage(dmg, DamageType.Physical);
                     break;
                 case RuneType.Blue:
                     float magDmg = (playerHero.Stats.MagicalDamage * 0.2f) * efficiency;
+                    val = magDmg; color = Color.cyan;
                     enemyBoss.TakeDamage(magDmg, DamageType.Magical);
                     RecordDamage(magDmg, DamageType.Magical);
                     break;
                 case RuneType.Green:
                     float heal = (playerHero.Stats.HPRegen * 0.2f) * efficiency;
+                    val = heal; color = Color.green;
                     playerHero.Stats.CurrentHP = Mathf.Min(playerHero.Stats.CurrentHP + heal, playerHero.Stats.MaxHP);
                     break;
                 case RuneType.Yellow:
                     float mana = playerHero.Stats.ManaRegen * 0.2f * efficiency;
+                    val = mana; color = Color.yellow;
                     playerHero.Stats.CurrentMana = Mathf.Min(playerHero.Stats.CurrentMana + mana, playerHero.Stats.MaxMana);
                     break;
                 case RuneType.Orange: // Đá cam nổ lẻ
                     // Tính 20% hiệu quả của mốc 5% HP tối đa
                     float singleShield = (playerHero.Stats.MaxHP * 0.05f * 0.20f) * efficiency;
+                    val = singleShield; color = Color.orange;
                     playerHero.Stats.Shield += singleShield;
                     break;
             }
+            SpawnPopUp(pos, val, color);
             UpdateUI();
         }
 
@@ -354,7 +367,7 @@ namespace Match3Game.Managers
             return Mathf.Max(0f, totalEfficiency);
         }
 
-        private void ProcessRedRune(MatchType matchType, float comboEfficiency)
+        private void ProcessRedRune(MatchType matchType, float comboEfficiency, Vector2 pos)
         {
             float baseDmg = playerHero.Stats.PhysicalDamage;
             float finalDmg = 0f;
@@ -386,6 +399,8 @@ namespace Match3Game.Managers
                 finalDmg *= playerHero.Stats.CritDamage;
                 Debug.Log("Chí mạng!");
             }
+
+            SpawnPopUp(pos, finalDmg, damageType == DamageType.TrueDamage ? Color.white : Color.red);
             enemyBoss.TakeDamage(finalDmg, damageType);
             RecordDamage(finalDmg, damageType);
             if (playerHero.Stats.LifeSteal > 0)
@@ -398,7 +413,7 @@ namespace Match3Game.Managers
             Debug.Log($"[Phys Dmg] Deal {finalDmg} Dmg ({damageType})");
         }
 
-        private void ProcessBlueRune(MatchType matchType, float comboEfficiency)
+        private void ProcessBlueRune(MatchType matchType, float comboEfficiency, Vector2 pos)
         {
             float baseMagicDmg = playerHero.Stats.MagicalDamage;
             float finalDmg = 0f;
@@ -423,6 +438,8 @@ namespace Match3Game.Managers
             }
 
             finalDmg *= comboEfficiency;
+
+            SpawnPopUp(pos, finalDmg, Color.cyan);
             enemyBoss.TakeDamage(finalDmg, DamageType.Magical);
             RecordDamage(finalDmg, DamageType.Magical);
             if (playerHero.Stats.SpellVamp > 0)
@@ -435,7 +452,7 @@ namespace Match3Game.Managers
             Debug.Log($"[Blue Rune] Gây {finalDmg} sát thương phép thuật.");
         }
 
-        private void ProcessGreenRune(MatchType matchType, float comboEfficiency)
+        private void ProcessGreenRune(MatchType matchType, float comboEfficiency, Vector2 pos)
         {
             float baseHeal = playerHero.Stats.HPRegen;
             float finalHeal = 0f;
@@ -454,12 +471,14 @@ namespace Match3Game.Managers
             }
 
             finalHeal *= comboEfficiency;
+
+            SpawnPopUp(pos, finalHeal, Color.green);
             RecordHeal(finalHeal);
             playerHero.Stats.CurrentHP = Mathf.Min(playerHero.Stats.CurrentHP + finalHeal, playerHero.Stats.MaxHP);
             Debug.Log($"[Green Rune] Hồi {finalHeal} HP.");
         }
 
-        private void ProcessYellowRune(MatchType matchType, float comboEfficiency)
+        private void ProcessYellowRune(MatchType matchType, float comboEfficiency, Vector2 pos)
         {
             float baseMana = playerHero.Stats.ManaRegen;
             float finalMana = 0f;
@@ -478,11 +497,12 @@ namespace Match3Game.Managers
             }
 
             finalMana *= comboEfficiency;
+            SpawnPopUp(pos, finalMana, Color.yellow);
             playerHero.Stats.CurrentMana = Mathf.Min(playerHero.Stats.CurrentMana + finalMana, playerHero.Stats.MaxMana);
             Debug.Log($"[Yellow Rune] Hồi {finalMana} Mana.");
         }
 
-        private void ProcessOrangeRune(MatchType matchType, float comboEfficiency)
+        private void ProcessOrangeRune(MatchType matchType, float comboEfficiency, Vector2 pos)
         {
             float maxHP = playerHero.Stats.MaxHP;
             float shieldPercent = 0f;
@@ -509,8 +529,42 @@ namespace Match3Game.Managers
             float shieldAmount = maxHP * shieldPercent * comboEfficiency;
             playerHero.Stats.Shield += shieldAmount;
 
+            SpawnPopUp(pos, shieldAmount, Color.orange);
+
             Debug.Log($"[Đá Cam] Nhận được lá chắn trị giá {shieldAmount} HP.");
             UpdateUI(); // Cập nhật lại giao diện để hiển thị thanh Shield nếu có
+        }
+
+        //Nay so
+        public void SpawnPopUp(Vector2 position, float value, Color color)
+        {
+            Debug.Log("Spawning: " + value);
+            if (value <= 0 || floatingTextPrefab == null)
+            {
+                if (floatingTextPrefab == null) Debug.LogWarning("Chưa gán floatingTextPrefab trong Inspector!");
+                return;
+            }
+            if (value <= 0) return;
+            // 1. Tạo Popup là con của Canvas
+            GameObject popUp = Instantiate(floatingTextPrefab, canvasTransform);
+
+            // 2. Chuyển đổi vị trí từ Thế giới sang Màn hình
+            // "position" từ BoardManager là tọa độ (x*Spacing, y*Spacing)
+            Vector3 worldPos = new Vector3(position.x, position.y, 0);
+            Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
+
+            // Gán trực tiếp vào position của UI
+            popUp.transform.position = screenPos;
+
+            // 3. Quan trọng: Đảm bảo Scale không bị nhảy
+            popUp.transform.localScale = Vector3.one;
+
+            // 4. Gọi Setup
+            FloatingText ft = popUp.GetComponent<FloatingText>();
+            if (ft != null)
+            {
+                ft.Setup(Mathf.RoundToInt(value).ToString(), color);
+            }
         }
 
         //GUI tam thoi

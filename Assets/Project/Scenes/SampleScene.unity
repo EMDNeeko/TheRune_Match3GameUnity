@@ -1731,6 +1731,8 @@ MonoBehaviour:
   btnActiveSkill: {fileID: 935851293}
   btnUltimateSkill: {fileID: 309412630}
   btnConfirmSkill: {fileID: 1205233596}
+  floatingTextPrefab: {fileID: 246740615219047726, guid: 8f1f6252ff98ea44393e49a9ee967a27, type: 3}
+  canvasTransform: {fileID: 411470959}
 --- !u!1 &1941622453
 GameObject:
   m_ObjectHideFlags: 0
