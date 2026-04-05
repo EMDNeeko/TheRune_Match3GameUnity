@@ -58,6 +58,12 @@ namespace Match3Game.Managers
         public GameObject floatingTextPrefab;
         public Transform canvasTransform;
 
+        [Header("UI Elements - Bars")]
+        public Image heroHPFill;
+        public Image heroManaFill;
+        public Image heroShieldFill;
+        public Image bossHPFill;
+
 
         private bool hasGainedExtraTurnThisAction = false;
         private static System.Random s_random = new System.Random();
@@ -78,10 +84,16 @@ namespace Match3Game.Managers
         {
             if (playerHero != null)
             {
+                // Bar
+                heroHPFill.fillAmount = playerHero.Stats.CurrentHP / playerHero.Stats.MaxHP;
+                heroManaFill.fillAmount = playerHero.Stats.CurrentMana / playerHero.Stats.MaxMana;
+                heroShieldFill.fillAmount = playerHero.Stats.Shield / playerHero.Stats.MaxHP;
+
+
                 heroName.text = $"{playerHero.HeroName} Form: {((Ramses)playerHero).CurrentForm} in {((Ramses)playerHero).burningTurnLeft}";
-                heroHPText.text = $"HP: {playerHero.Stats.CurrentHP} / {playerHero.Stats.MaxHP}";
-                heroShieldText.text = $"Shield: {playerHero.Stats.Shield}";
-                heroManaText.text = $"Mana: {playerHero.Stats.CurrentMana} / {playerHero.Stats.MaxMana}";
+                heroHPText.text = $"{Mathf.RoundToInt(playerHero.Stats.CurrentHP)} / {playerHero.Stats.MaxHP}";
+                heroShieldText.text = $"{Mathf.RoundToInt(playerHero.Stats.Shield)}";
+                heroManaText.text = $"{Mathf.RoundToInt(playerHero.Stats.CurrentMana)} / {playerHero.Stats.MaxMana}";
                 // --- CẬP NHẬT TRẠNG THÁI NÚT SKILL ---
                 if (playerHero is Ramses ramses && btnActiveSkill != null && btnUltimateSkill != null)
                 {
@@ -129,7 +141,8 @@ namespace Match3Game.Managers
             }
             trackerText.text = $"STVL: {totalPhysDmg} | STPT: {totalMageDmg} | STC: {totalTrueDmg} | Healed: {totalHPHealed}";
             currentTurn.text = $"Current turn: {countTurn}";
-            bossHPText.text = $"Current Boss HP: {enemyBoss.Stats.CurrentHP} / {enemyBoss.Stats.MaxHP}";
+            bossHPFill.fillAmount = enemyBoss.Stats.CurrentHP / enemyBoss.Stats.MaxHP;
+            bossHPText.text = $"Current Boss HP: {Mathf.RoundToInt(enemyBoss.Stats.CurrentHP)} / {enemyBoss.Stats.MaxHP}";
         }
         //Khi bat dau thao tac
         public void StartAction()
@@ -144,6 +157,12 @@ namespace Match3Game.Managers
                 return;
             }
             if (!isPlayerTurn || playerHero.Stats.CurrentMana < 40f) return;
+
+            if (boardManager.pendingSkillType == SkillType.Active && btnConfirmSkill.gameObject.activeSelf)
+            {
+                CancelSkillTargeting();
+                return;
+            }
             Debug.Log("Chose Active Skill, choose a place in board!");
             boardManager.EnterSkillTargetingMode(SkillType.Active);
             btnConfirmSkill.gameObject.SetActive(true);
@@ -164,6 +183,11 @@ namespace Match3Game.Managers
             }
             else
             {
+                if (boardManager.pendingSkillType == SkillType.Ultimate && btnConfirmSkill.gameObject.activeSelf)
+                {
+                    CancelSkillTargeting();
+                    return;
+                }
                 Debug.Log("Chose Ultimate (Burning), choose target row / column");
                 boardManager.EnterSkillTargetingMode(SkillType.Ultimate);
                 btnConfirmSkill.gameObject.SetActive(true);
@@ -188,6 +212,14 @@ namespace Match3Game.Managers
                 ((Ramses)playerHero).CastUltimateSkill(boardManager, targetCell);
             }
             UpdateUI();
+        }
+
+        //huy skill
+        public void CancelSkillTargeting()
+        {
+            Debug.Log("Da huy skill");
+            boardManager.ExitSkillTargetingMode();
+            btnConfirmSkill.gameObject.SetActive(false);
         }
 
         public void RecordDamage(float amount, DamageType type)
@@ -317,6 +349,7 @@ namespace Match3Game.Managers
             Debug.Log($"Boss attacked, dealing {currentDmg} PhysDmg");
             playerHero.TakeDamage(currentDmg, DamageType.Physical);
 
+            boardManager.ApplyRandomEffectToBasicRune();
             countTurn++;
 
             Debug.Log("Boss ended turn, change to player turn");
@@ -538,7 +571,6 @@ namespace Match3Game.Managers
         //Nay so
         public void SpawnPopUp(Vector2 position, float value, Color color)
         {
-            Debug.Log("Spawning: " + value);
             if (value <= 0 || floatingTextPrefab == null)
             {
                 if (floatingTextPrefab == null) Debug.LogWarning("Chưa gán floatingTextPrefab trong Inspector!");
@@ -565,6 +597,32 @@ namespace Match3Game.Managers
             {
                 ft.Setup(Mathf.RoundToInt(value).ToString(), color);
             }
+        }
+
+        //Rune Effect
+        public void ApplyRuneNegativeEffect(RuneEffect effect)
+        {
+            if (playerHero == null) return;
+            if (effect == RuneEffect.Burn)
+            {
+                //deal Burn dmg
+                float burnDmg = playerHero.Stats.MaxHP * 0.02f;
+                playerHero.TakeDamage(burnDmg, DamageType.Magical);
+
+                Debug.Log($"Received Burn Dmg: {burnDmg}");
+                SpawnPopUp(Vector2.zero, burnDmg, Color.violetRed);
+            }
+            else if (effect == RuneEffect.Poison || effect == RuneEffect.PoisonSpread)
+            {
+                //deal Poison dmg
+                float poisonDmg = Random.Range(10f, 20f);
+                playerHero.TakeDamage(poisonDmg, DamageType.TrueDamage);
+
+                Debug.Log($"Received Poison Dmg: {poisonDmg}");
+                SpawnPopUp(Vector2.zero, poisonDmg, Color.violet);
+            }
+
+            UpdateUI();
         }
 
         //GUI tam thoi

@@ -29,6 +29,11 @@ namespace Match3Game.Managers
         public GameObject highlightPrefab;
         private GameObject currentHighlight;
 
+        [Header("Rune Effect Prefabs")]
+        public GameObject burnEffectPrefab;
+        public GameObject poisonEffectPrefab;
+        public GameObject freezeEffectPrefab;
+
         private BoardData boardData;
         private MatchDetector matchDetector;
         private RuneView[,] runeViews; //show object
@@ -107,7 +112,15 @@ namespace Match3Game.Managers
         public void ExitSkillTargetingMode()
         {
             boardData.CurrentState = BoardState.Idle;
-            if (currentHighlight != null) Destroy(currentHighlight);
+
+            pendingSkillType = SkillType.None;
+            targetedCell = null;
+
+            if (currentHighlight != null)
+            {
+                Destroy(currentHighlight);
+                currentHighlight = null;
+            }
         }
         public CellData GetTargetedCell()
         {
@@ -217,9 +230,14 @@ namespace Match3Game.Managers
                     }
                     else
                     {
-                        // Thu thập đá cơ bản và truyền hiệu quả multiplier
-                        combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos, cell.CurrentRune.GetEfficiency() * efficiencyMultiplier);
-                        ClearCell(cell);
+                        // Chỉ thu thập (tính điểm) nếu đá không bị đóng băng
+                        if (!(cell.CurrentRune.CurrentEffect == RuneEffect.Frozen && cell.CurrentRune.effectStacks > 0))
+                        {
+                            combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos, cell.CurrentRune.GetEfficiency() * efficiencyMultiplier);
+                        }
+
+                        // Xử lý nổ/phá băng/kích hoạt hiệu ứng
+                        ProcessRuneDestruction(cell);
                     }
                 }
             }
@@ -229,7 +247,7 @@ namespace Match3Game.Managers
             {
                 if (cell.CurrentRune != null && !cellsToCollect.Contains(cell))
                 {
-                    ClearCell(cell);
+                    ProcessRuneDestruction(cell);
                 }
             }
 
@@ -486,14 +504,9 @@ namespace Match3Game.Managers
 
             foreach (var cell in actualDestroyList)
             {
-                int x = cell.X;
-                int y = cell.Y;
-
-                boardData.Grid[x, y].ClearRune();
-                if (runeViews[x, y] != null)
+                if (cell.CurrentRune != null)
                 {
-                    Destroy(runeViews[x, y].gameObject);
-                    runeViews[x, y] = null;
+                    ProcessRuneDestruction(cell);
                 }
             }
 
@@ -621,14 +634,15 @@ namespace Match3Game.Managers
                 if (cell.CurrentRune != null)
                 {
                     Vector2 worldPos = new Vector2(cell.X * Spacing, cell.Y * Spacing);
-                    combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos);
 
-                    cell.ClearRune();
-                    if (runeViews[cell.X, cell.Y] != null)
+                    // Đá dính băng sẽ không sinh ra điểm thu thập
+                    if (!(cell.CurrentRune.CurrentEffect == RuneEffect.Frozen && cell.CurrentRune.effectStacks > 0))
                     {
-                        Destroy(runeViews[cell.X, cell.Y].gameObject);
-                        runeViews[cell.X, cell.Y] = null;
+                        combatManager?.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos);
                     }
+
+                    // Gọi hàm xử lý tổng hợp
+                    ProcessRuneDestruction(cell);
                 }
             }
 
@@ -824,5 +838,107 @@ namespace Match3Game.Managers
                 }
             }
         }
+
+        //rune effect
+        public void ApplyRandomEffectToBasicRune()
+        {
+            List<CellData> validRunes = new List<CellData>();
+
+            for (int x = 0; x < Width; x++)
+            {
+                for (int y = 0; y < Height; y++)
+                {
+                    CellData cell = boardData.GetCell(x, y);
+                    if (cell != null && !cell.isEmpty())
+                    {
+                        RuneData rune = cell.CurrentRune;
+                        if (rune.SpecialType == SpecialRuneType.None && rune.CurrentEffect == RuneEffect.None)
+                        {
+                            validRunes.Add(cell);
+                        }
+                    }
+                }
+            }
+
+            if (validRunes.Count > 0)
+            {
+                CellData targetCell = validRunes[Random.Range(0, validRunes.Count)];
+
+                // 1. Burn, 2. Poison, 3. Freeze
+                int randomEffect = Random.Range(1, 4);
+                GameObject prefabToSpawn = null;
+                switch (randomEffect)
+                {
+                    case 1:
+                        targetCell.CurrentRune.CurrentEffect = RuneEffect.Burn;
+                        prefabToSpawn = burnEffectPrefab;
+                        Debug.Log($"Burn in {targetCell.X}, {targetCell.Y}");
+                        break;
+                    case 2:
+                        targetCell.CurrentRune.CurrentEffect = RuneEffect.Poison;
+                        prefabToSpawn = poisonEffectPrefab;
+                        Debug.Log($"Poison in {targetCell.X}, {targetCell.Y}");
+                        break;
+                    case 3:
+                        targetCell.CurrentRune.CurrentEffect = RuneEffect.Frozen;
+                        prefabToSpawn = freezeEffectPrefab;
+                        Debug.Log($"Freeze in {targetCell.X}, {targetCell.Y}");
+                        break;
+                }
+
+                if (runeViews[targetCell.X, targetCell.Y] != null && prefabToSpawn != null)
+                {
+                    runeViews[targetCell.X, targetCell.Y].ApplyEffectVisual(prefabToSpawn);
+                }
+            }
+            else
+            {
+                Debug.Log("No more Basic Rune");
+            }
+        }
+
+        //destroy effect rune
+        private void ProcessRuneDestruction(CellData cell)
+        {
+            if (cell == null || cell.CurrentRune == null) return;
+            RuneData rune = cell.CurrentRune;
+
+            //Shattle Freeze
+            if (rune.CurrentEffect == RuneEffect.Frozen && rune.effectStacks > 0)
+            {
+                rune.effectStacks--;
+
+                if (runeViews[cell.X, cell.Y] != null)
+                {
+                    runeViews[cell.X, cell.Y].UpdateStackText(rune.effectStacks);
+                }
+
+                if (rune.effectStacks <= 0)
+                {
+                    rune.CurrentEffect = RuneEffect.None;
+                    if (runeViews[cell.X, cell.Y] != null)
+                    {
+                        runeViews[cell.X, cell.Y].ClearEffectVisual();
+                    }
+                }
+                return;
+            }
+            if (rune.CurrentEffect == RuneEffect.Burn || rune.CurrentEffect == RuneEffect.Poison || rune.CurrentEffect == RuneEffect.PoisonSpread)
+            {
+                if (combatManager != null)
+                {
+                    combatManager.ApplyRuneNegativeEffect(rune.CurrentEffect);
+                }
+
+            }
+
+            cell.ClearRune();
+            if (runeViews[cell.X, cell.Y] != null)
+            {
+                Destroy(runeViews[cell.X, cell.Y].gameObject);
+                runeViews[cell.X, cell.Y] = null;
+            }
+        }
+
     }
 }

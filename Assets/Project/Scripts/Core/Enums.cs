@@ -17,6 +17,7 @@ public enum BoardState
 
 public enum SkillType
 {
+    None,
     Passive,
     Active,
     Ultimate,
