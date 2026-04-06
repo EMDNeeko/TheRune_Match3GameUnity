@@ -21,6 +21,9 @@ namespace Match3Game.Board
             spriteRenderer.sprite = sprite;
             transform.position = startPos;
             targetPosition = startPos;
+
+            UpdateStackText(0);
+            ClearEffectVisual();
         }
 
         //khi rune thay doi vi tri
@@ -43,14 +46,16 @@ namespace Match3Game.Board
             }
         }
 
-        public void ApplyEffectVisual(GameObject effectPrefab)
+        public void ApplyEffectVisual(GameObject effectPrefab, int effectStack)
         {
             ClearEffectVisual();
             if (effectPrefab != null)
             {
                 currentEffectObj = Instantiate(effectPrefab, transform.position, Quaternion.identity, transform);
-
                 currentEffectObj.transform.localPosition = new Vector3(0, 0, -1f);
+
+                // ĐÃ SỬA: Gọi thẳng hàm UpdateStackText để nó tự lo việc bật/tắt UI thay vì chỉ gán chữ
+                UpdateStackText(effectStack);
 
                 //chinh toc do animate neu co animator
                 Animator anim = currentEffectObj.GetComponent<Animator>();
@@ -80,8 +85,14 @@ namespace Match3Game.Board
                 }
                 else
                 {
+                    // Chắc chắn ẩn đi khi số tầng <= 0 hoặc khi đá mới được tạo ra
                     stackText.gameObject.SetActive(false);
                 }
+            }
+            else
+            {
+                // In ra cảnh báo đỏ nếu quên kéo thả Text trong Unity
+                Debug.LogWarning("Chưa gán biến 'Stack Text' cho Rune Prefab trong Inspector!");
             }
         }
     }

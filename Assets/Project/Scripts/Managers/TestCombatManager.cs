@@ -27,6 +27,8 @@ namespace Match3Game.Managers
 
         [Header("Turn Management")]
         public bool isPlayerTurn = true;
+        public int baseSwipeAction = 2;
+        public int currentSwipeAction = 2;
         public int extraActions = 0;
         private bool hasEarnedExtraActionThisTurn = false;
 
@@ -49,6 +51,7 @@ namespace Match3Game.Managers
         public Button btnActiveSkill;
         public Button btnUltimateSkill;
         public Button btnConfirmSkill;
+        public Text actionCountText;
 
         [Header("Boss Config")]
         private float bossBaseDmg = 100f;
@@ -90,7 +93,7 @@ namespace Match3Game.Managers
                 heroShieldFill.fillAmount = playerHero.Stats.Shield / playerHero.Stats.MaxHP;
 
 
-                heroName.text = $"{playerHero.HeroName} Form: {((Ramses)playerHero).CurrentForm} in {((Ramses)playerHero).burningTurnLeft}";
+                heroName.text = $"{playerHero.HeroName} F: {((Ramses)playerHero).CurrentForm} in {((Ramses)playerHero).burningTurnLeft}";
                 heroHPText.text = $"{Mathf.RoundToInt(playerHero.Stats.CurrentHP)} / {playerHero.Stats.MaxHP}";
                 heroShieldText.text = $"{Mathf.RoundToInt(playerHero.Stats.Shield)}";
                 heroManaText.text = $"{Mathf.RoundToInt(playerHero.Stats.CurrentMana)} / {playerHero.Stats.MaxMana}";
@@ -138,11 +141,16 @@ namespace Match3Game.Managers
                     // Chỉ sáng lên khi đủ điều kiện VÀ đang là lượt của người chơi
                     btnUltimateSkill.interactable = canUseUlti && isPlayerTurn;
                 }
+
+                if (actionCountText != null)
+                {
+                    actionCountText.text = $"Action: {currentSwipeAction + extraActions}" + (extraActions > 0 ? $"(Extra: {extraActions})" : "");
+                }
             }
             trackerText.text = $"STVL: {totalPhysDmg} | STPT: {totalMageDmg} | STC: {totalTrueDmg} | Healed: {totalHPHealed}";
             currentTurn.text = $"Current turn: {countTurn}";
             bossHPFill.fillAmount = enemyBoss.Stats.CurrentHP / enemyBoss.Stats.MaxHP;
-            bossHPText.text = $"Current Boss HP: {Mathf.RoundToInt(enemyBoss.Stats.CurrentHP)} / {enemyBoss.Stats.MaxHP}";
+            bossHPText.text = $"Boss HP: {Mathf.RoundToInt(enemyBoss.Stats.CurrentHP)} / {enemyBoss.Stats.MaxHP}";
         }
         //Khi bat dau thao tac
         public void StartAction()
@@ -331,12 +339,6 @@ namespace Match3Game.Managers
         //het luot
         public void EndTurn()
         {
-            if (extraActions > 0)
-            {
-                extraActions--;
-                Debug.Log("Use 1 extra action. Remaining actions: " + extraActions);
-                return;
-            }
             Debug.Log("Change turn");
             isPlayerTurn = false;
 
@@ -353,6 +355,9 @@ namespace Match3Game.Managers
             countTurn++;
 
             Debug.Log("Boss ended turn, change to player turn");
+
+            currentSwipeAction = baseSwipeAction;
+
             isPlayerTurn = true;
             if (playerHero is Ramses ramses)
             {
@@ -625,24 +630,28 @@ namespace Match3Game.Managers
             UpdateUI();
         }
 
-        //GUI tam thoi
-        void OnGUI()
+        //Quan li action
+        public void DeductSwipeAction()
         {
-            GUI.color = Color.white;
-            GUI.skin.label.fontSize = 35;
-            GUI.skin.label.fontStyle = FontStyle.Bold;
-
-            GUILayout.BeginArea(new Rect(30, 30, 600, 800));
-
-
-
-            GUILayout.EndArea();
-
-            GUILayout.BeginArea(new Rect(600, 160, 600, 800));
-            GUILayout.Label($"Turn {countTurn}");
-            GUILayout.EndArea();
-
-
+            if (extraActions > 0)
+            {
+                extraActions--;
+            }
+            else
+            {
+                currentSwipeAction--;
+            }
+            UpdateUI();
         }
+        public void CheckTurnEnd()
+        {
+            if (currentSwipeAction <= 0 && extraActions <= 0)
+            {
+                EndTurn();
+            }
+        }
+
+        //GUI tam thoi
+
     }
 }

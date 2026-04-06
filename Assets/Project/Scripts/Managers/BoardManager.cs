@@ -278,6 +278,11 @@ namespace Match3Game.Managers
             else
             {
                 boardData.CurrentState = BoardState.Idle;
+
+                if (combatManager != null && combatManager.isPlayerTurn)
+                {
+                    combatManager.CheckTurnEnd();
+                }
             }
         }
 
@@ -296,6 +301,13 @@ namespace Match3Game.Managers
             //Swipe
             if (swipeDelta.magnitude > swipeThreshold)
             {
+                if (!selectedCell.CurrentRune.isMovable())
+                {
+                    Debug.Log("Da bi dong bang, khong the thao tac");
+                    selectedCell = null;
+                    return;
+                }
+
                 swipeDelta.Normalize();
                 int dirX = Mathf.RoundToInt(swipeDelta.x);
                 int dirY = Mathf.RoundToInt(swipeDelta.y);
@@ -315,6 +327,12 @@ namespace Match3Game.Managers
                 //Active special LB & Bomb
                 if (targetCell != null)
                 {
+                    if (!targetCell.CurrentRune.isMovable())
+                    {
+                        Debug.Log("Bi dong bang, khong the doi cho");
+                        selectedCell = null;
+                        return;
+                    }
                     SpecialRuneType selectedType = selectedCell.CurrentRune.SpecialType;
                     SpecialRuneType targetType = targetCell.CurrentRune.SpecialType;
 
@@ -344,6 +362,10 @@ namespace Match3Game.Managers
                     // Chỉ kích hoạt khi bấm vào Meteor hoặc Rainbow
                     if (spType == SpecialRuneType.Meteor || spType == SpecialRuneType.Rainbow)
                     {
+                        if (combatManager != null)
+                        {
+                            combatManager.DeductSwipeAction();
+                        }
                         StartCoroutine(ExplodeSpecialRune(selectedCell));
                     }
                 }
@@ -365,6 +387,10 @@ namespace Match3Game.Managers
 
             if (matches.Count > 0)
             {
+                if (combatManager != null)
+                {
+                    combatManager.DeductSwipeAction();
+                }
                 foreach (var match in matches)
                 {
                     // Check which swapped cell is actually part of this specific match
@@ -402,6 +428,10 @@ namespace Match3Game.Managers
             CellData explosionCenter = (originalSpecialCell == cellA) ? cellB : cellA;
 
             // 3. Gọi hàm kích nổ mượn lại logic của ExplodeSpecialRune
+            if (combatManager != null)
+            {
+                combatManager.DeductSwipeAction();
+            }
             yield return StartCoroutine(ExplodeSpecialRune(explosionCenter));
         }
 
@@ -474,38 +504,48 @@ namespace Match3Game.Managers
             // }
 
             // 3. Thực hiện phá hủy toàn bộ danh sách (cả tổ hợp gốc + các ô nổ lây)
-            List<CellData> actualDestroyList = new List<CellData>();
+            // List<CellData> actualDestroyList = new List<CellData>();
+            // foreach (var cell in cellsToDestroy)
+            // {
+            //     if (cell.CurrentRune != null)
+            //     {
+            //         // break ice
+            //         if (cell.CurrentRune.CurrentEffect == RuneEffect.Frozen && cell.CurrentRune.effectStacks > 0)
+            //         {
+            //             cell.CurrentRune.effectStacks--;
+            //             if (cell.CurrentRune.effectStacks <= 0)
+            //             {
+            //                 cell.CurrentRune.CurrentEffect = RuneEffect.None;
+            //             }
+
+            //             if (combatManager != null)
+            //             {
+            //                 Vector2 worldPos = new Vector2(cell.X * Spacing, cell.Y * Spacing);
+            //                 combatManager.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos);
+            //             }
+            //         }
+            //         else
+            //         {
+            //             TriggerDestroyEffects(cell.CurrentRune);
+            //             actualDestroyList.Add(cell);
+            //         }
+            //     }
+            // }
+
+            // foreach (var cell in actualDestroyList)
+            // {
+            //     if (cell.CurrentRune != null)
+            //     {
+            //         ProcessRuneDestruction(cell);
+            //     }
+            // }
+
+            // 3. Thực hiện phá hủy toàn bộ danh sách (cả tổ hợp gốc + các ô nổ lây)
             foreach (var cell in cellsToDestroy)
             {
                 if (cell.CurrentRune != null)
                 {
-                    // break ice
-                    if (cell.CurrentRune.CurrentEffect == RuneEffect.Frozen && cell.CurrentRune.effectStacks > 0)
-                    {
-                        cell.CurrentRune.effectStacks--;
-                        if (cell.CurrentRune.effectStacks <= 0)
-                        {
-                            cell.CurrentRune.CurrentEffect = RuneEffect.None;
-                        }
-
-                        if (combatManager != null)
-                        {
-                            Vector2 worldPos = new Vector2(cell.X * Spacing, cell.Y * Spacing);
-                            combatManager.ProcessingSingleRune(cell.CurrentRune.OriginalColor, worldPos);
-                        }
-                    }
-                    else
-                    {
-                        TriggerDestroyEffects(cell.CurrentRune);
-                        actualDestroyList.Add(cell);
-                    }
-                }
-            }
-
-            foreach (var cell in actualDestroyList)
-            {
-                if (cell.CurrentRune != null)
-                {
+                    // Hàm này đã bao gồm: trừ stack, cập nhật text UI, gỡ hình ảnh băng và kích hoạt hiệu ứng xấu
                     ProcessRuneDestruction(cell);
                 }
             }
@@ -558,9 +598,9 @@ namespace Match3Game.Managers
             else
             {
                 boardData.CurrentState = BoardState.Idle;
-                if (combatManager != null)
+                if (combatManager != null && combatManager.isPlayerTurn)
                 {
-                    combatManager.EndTurn();
+                    combatManager.CheckTurnEnd();
                 }
             }
         }
@@ -658,7 +698,10 @@ namespace Match3Game.Managers
             else
             {
                 boardData.CurrentState = BoardState.Idle;
-                combatManager?.EndTurn();
+                if (combatManager != null && combatManager.isPlayerTurn)
+                {
+                    combatManager.CheckTurnEnd();
+                }
             }
         }
 
@@ -881,6 +924,7 @@ namespace Match3Game.Managers
                         break;
                     case 3:
                         targetCell.CurrentRune.CurrentEffect = RuneEffect.Frozen;
+                        targetCell.CurrentRune.effectStacks = 1;
                         prefabToSpawn = freezeEffectPrefab;
                         Debug.Log($"Freeze in {targetCell.X}, {targetCell.Y}");
                         break;
@@ -888,7 +932,7 @@ namespace Match3Game.Managers
 
                 if (runeViews[targetCell.X, targetCell.Y] != null && prefabToSpawn != null)
                 {
-                    runeViews[targetCell.X, targetCell.Y].ApplyEffectVisual(prefabToSpawn);
+                    runeViews[targetCell.X, targetCell.Y].ApplyEffectVisual(prefabToSpawn, targetCell.CurrentRune.effectStacks);
                 }
             }
             else
