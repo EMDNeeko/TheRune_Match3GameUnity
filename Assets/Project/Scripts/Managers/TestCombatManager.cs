@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using Match3Game.Data;
 using Match3Game.Entities.Heroes;
 using Match3Game.Mechanics;
+using Match3Game.Assets.Project.Scripts.Data;
 
 namespace Match3Game.Managers
 {
@@ -73,7 +74,15 @@ namespace Match3Game.Managers
 
         void Start()
         {
-            playerHero = new Ramses();
+            if (GameSession.selectedHero == "Ramses")
+            {
+                playerHero = new Ramses();
+            }
+            else
+            {
+                playerHero = new Ramses();
+            }
+
 
             enemyBoss = new Boss();
 
@@ -269,6 +278,12 @@ namespace Match3Game.Managers
                 GrantExtraAction();
             }
 
+            RuneType effectiveType = match.MatchedRuneType;
+            if (effectiveType == RuneType.Purple)
+            {
+                effectiveType = GetPriorityRuneType();
+            }
+
             switch (match.MatchedRuneType)
             {
                 case RuneType.Red:
@@ -287,9 +302,6 @@ namespace Match3Game.Managers
                 case RuneType.Orange:
                     ProcessOrangeRune(match.TypeOfMatch, comboEfficiency, pos);
                     break;
-                    // case RuneType.Purple:
-                    //     ProcessPurpleRune(match.TypeOfMatch, comboEfficiency);
-                    //     break;
             }
             UpdateUI();
         }
@@ -299,6 +311,12 @@ namespace Match3Game.Managers
             if (playerHero == null || enemyBoss == null) return;
             float val = 0;
             Color color = Color.white;
+
+            RuneType effectiveType = type;
+            if (effectiveType == RuneType.Purple)
+            {
+                effectiveType = GetPriorityRuneType();
+            }
 
             switch (type)
             {
@@ -334,6 +352,22 @@ namespace Match3Game.Managers
             }
             SpawnPopUp(pos, val, color);
             UpdateUI();
+        }
+
+        private RuneType GetPriorityRuneType()
+        {
+            switch (GameSession.selectedPriorityStat)
+            {
+                case PriorityStat.PhysicalAttack:
+                    return RuneType.Red;
+                case PriorityStat.MagicalAttack:
+                    return RuneType.Blue;
+                case PriorityStat.HealthAndHPRegen:
+                    return RuneType.Green;
+                case PriorityStat.ManaAndManaRegen:
+                    return RuneType.Yellow;
+                default: return RuneType.Red;
+            }
         }
 
         //het luot

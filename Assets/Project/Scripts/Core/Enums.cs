@@ -54,3 +54,7 @@ public enum StatusType
 {
     None, Burn, Poison, Vulnerable, Stun, Silence, ReducedHealing, Unstoppable, Immortal
 }
+public enum PriorityStat
+{
+    None, PhysicalAttack, MagicalAttack, HealthAndHPRegen, ManaAndManaRegen
+}

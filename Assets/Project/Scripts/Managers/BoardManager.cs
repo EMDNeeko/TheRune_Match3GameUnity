@@ -90,12 +90,12 @@ namespace Match3Game.Managers
             RuneData newRune = new RuneData(chosenType);
             boardData.Grid[x, y].SetRune(newRune);
 
-            Vector2 spawnPos = new Vector2(x * Spacing, (y + 5) * Spacing);
+            Vector2 spawnPos = new Vector2(x * Spacing, (y + 5) * Spacing) + (Vector2)transform.position;
             GameObject runeObj = Instantiate(RunePrefab, spawnPos, Quaternion.identity, this.transform);
 
             RuneView view = runeObj.GetComponent<RuneView>();
             view.Initialize(RuneSprites[(int)chosenType], spawnPos);
-            view.MoveToPosition(new Vector2(x * Spacing, y * Spacing));
+            view.MoveToPosition(new Vector2(x * Spacing, y * Spacing) + (Vector2)transform.position);
 
             runeViews[x, y] = view;
         }
@@ -827,7 +827,7 @@ namespace Match3Game.Managers
             specialRune.OriginalColor = baseType; // Lưu lại màu gốc
             boardData.Grid[x, y].SetRune(specialRune);
 
-            Vector2 pos = new Vector2(x * Spacing, y * Spacing);
+            Vector2 pos = new Vector2(x * Spacing, y * Spacing) + (Vector2)transform.position;
             GameObject runeObj = Instantiate(RunePrefab, pos, Quaternion.identity, this.transform);
             RuneView view = runeObj.GetComponent<RuneView>();
 
@@ -863,7 +863,7 @@ namespace Match3Game.Managers
 
                                 runeViews[x, y] = runeViews[x, upperY];
                                 runeViews[x, upperY] = null;
-                                runeViews[x, y].MoveToPosition(new Vector2(x * Spacing, y * Spacing));
+                                runeViews[x, y].MoveToPosition(new Vector2(x * Spacing, y * Spacing) + (Vector2)transform.position);
                                 break;
                             }
                         }

@@ -25,6 +25,8 @@ namespace Match3Game.Data
         public float SpellVamp;
         public float CooldownReduction;
         public float DamageAmplification;
+
+        public float ArmorPenetration;
     }
 }
 // public class HeroStats

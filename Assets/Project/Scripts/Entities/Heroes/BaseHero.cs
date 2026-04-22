@@ -58,6 +58,48 @@ namespace Match3Game.Entities.Heroes
             }
         }
 
+        public virtual void TakeDamageWithPenetration(float incomingDmg, DamageType type, float penetrationRate)
+        {
+            float finalDmg = incomingDmg;
+
+            //reduce dmg
+            finalDmg -= finalDmg * (Stats.DamageReduction / 100f);
+
+            //True Dmg
+            if (type != DamageType.TrueDamage)
+            {
+                //Def calc
+                float eDef = Stats.Defense * (1f - penetrationRate);
+                float defReduceRatio = eDef / (50f + eDef);
+                finalDmg -= finalDmg * defReduceRatio;
+            }
+
+            //Shield
+            if (Stats.Shield > 0)
+            {
+                if (Stats.Shield >= finalDmg)
+                {
+                    Stats.Shield -= finalDmg;
+                    return;
+                }
+                else
+                {
+                    finalDmg -= Stats.Shield;
+                    Stats.Shield = 0;
+                }
+            }
+
+            //HP
+            Stats.CurrentHP -= finalDmg;
+
+            //check if ded
+            if (Stats.CurrentHP <= 0)
+            {
+                Stats.CurrentHP = 0;
+                Die();
+            }
+        }
+
         //Poisoned and Burned Rune
         public virtual void ApplyStatus(StatusType status, int durationRounds)
         {
