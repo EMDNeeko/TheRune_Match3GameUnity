@@ -4,6 +4,7 @@ using Match3Game.Data;
 using Match3Game.Entities.Heroes;
 using Match3Game.Mechanics;
 using Match3Game.Assets.Project.Scripts.Data;
+using Match3Game.Entities.Enemies;
 
 namespace Match3Game.Managers
 {
@@ -48,6 +49,7 @@ namespace Match3Game.Managers
         public Text heroManaText;
         public Text trackerText;
         public Text bossHPText;
+        public Text bossManaText;
         public Text currentTurn;
         public Button btnActiveSkill;
         public Button btnUltimateSkill;
@@ -67,6 +69,13 @@ namespace Match3Game.Managers
         public Image heroManaFill;
         public Image heroShieldFill;
         public Image bossHPFill;
+        public Image bossManaFill;
+
+        [Header("Herb Passive UI")]
+        public GameObject herbPassivePanel;
+        public Image herbPassivePhysFill;
+        public Image herbPassiveMageFill;
+        public Text herbPassiveText;
 
 
         private bool hasGainedExtraTurnThisAction = false;
@@ -78,20 +87,63 @@ namespace Match3Game.Managers
             {
                 playerHero = new Ramses();
             }
-            else
+            else if (GameSession.selectedHero == "Herb")
             {
-                playerHero = new Ramses();
+                playerHero = new Herb();
             }
 
 
-            enemyBoss = new Boss();
-
-            enemyBoss.Stats = new HeroStats() { MaxHP = 5000, CurrentHP = 5000, Defense = 10 };
+            enemyBoss = new DefaultEnemy();
 
             btnConfirmSkill.gameObject.SetActive(false);
             UpdateUI();
         }
-        public class Boss : BaseHero { public Boss() : base(new HeroStats()) { } }
+
+        //----Manage Skill Info for All Heroes----//
+        private (float manaCost, int cd, bool needsTarget) GetActiveSkillInfo()
+        {
+            if (playerHero is Ramses r) return (40f, r.activeCoolDown, true);
+            if (playerHero is Herb h) return (20f, h.activeCooldown, true);
+            return (0f, 0, false);
+        }
+        private (float manaCost, int cd, bool needsTarget) GetUltimateSkillInfo()
+        {
+            if (playerHero is Ramses r) return (120f, r.ultimateCoolDown, r.CurrentForm == RamsesForm.Burning);
+            if (playerHero is Herb h) return (150f, h.ultimateCooldown, false);
+            return (0f, 0, false);
+        }
+        public Vector3 GetSkillHighlightScale(SkillType skill)
+        {
+            if (playerHero is Ramses r)
+            {
+                if (skill == SkillType.Active) return r.CurrentForm == RamsesForm.Normal ? new Vector3(3, 3, 1) : new Vector3(5, 5, 1);
+                if (skill == SkillType.Ultimate && r.CurrentForm == RamsesForm.Burning) return new Vector3(3, boardManager.Height, 1);
+            }
+            else if (playerHero is Herb h)
+            {
+                if (skill == SkillType.Active)
+                {
+                    if (h.Stats.CurrentMana >= 80f) return new Vector3(4, 4, 1);
+                    if (h.Stats.CurrentMana >= 40f) return new Vector3(4, 3, 1);
+                    return new Vector3(3, 3, 1);
+                }
+            }
+            return new Vector3(1, 1, 1);
+        }
+        public void ExecuteSkill(SkillType skill, CellData targetCell)
+        {
+            if (skill == SkillType.Active)
+            {
+                if (playerHero is Ramses r) r.CastActiveSkill(boardManager, targetCell);
+                else if (playerHero is Herb h) h.CastActiveSkill(boardManager, targetCell);
+            }
+            else if (skill == SkillType.Ultimate)
+            {
+                if (playerHero is Ramses r) r.CastUltimateSkill(boardManager, targetCell);
+                else if (playerHero is Herb h) h.CastUltimateSkill(boardManager);
+            }
+        }
+
         public void UpdateUI()
         {
             if (playerHero != null)
@@ -102,54 +154,40 @@ namespace Match3Game.Managers
                 heroShieldFill.fillAmount = playerHero.Stats.Shield / playerHero.Stats.MaxHP;
 
 
-                heroName.text = $"{playerHero.HeroName} F: {((Ramses)playerHero).CurrentForm} in {((Ramses)playerHero).burningTurnLeft}";
+                heroName.text = $"{playerHero.HeroName}";
                 heroHPText.text = $"{Mathf.RoundToInt(playerHero.Stats.CurrentHP)} / {playerHero.Stats.MaxHP}";
                 heroShieldText.text = $"{Mathf.RoundToInt(playerHero.Stats.Shield)}";
                 heroManaText.text = $"{Mathf.RoundToInt(playerHero.Stats.CurrentMana)} / {playerHero.Stats.MaxMana}";
                 // --- CẬP NHẬT TRẠNG THÁI NÚT SKILL ---
-                if (playerHero is Ramses ramses && btnActiveSkill != null && btnUltimateSkill != null)
+                // -- Kỹ năng Chủ động --
+                var actInfo = GetActiveSkillInfo();
+                bool canUseAct = playerHero.Stats.CurrentMana >= actInfo.manaCost && actInfo.cd <= 0;
+                btnActiveSkill.interactable = canUseAct && isPlayerTurn;
+
+                Text actText = btnActiveSkill.GetComponentInChildren<Text>();
+                if (actText != null)
                 {
-                    Text activeText = btnActiveSkill.GetComponentInChildren<Text>();
-                    Text ultiText = btnUltimateSkill.GetComponentInChildren<Text>();
-
-                    // 1. Kiểm tra Active Skill (Cần 40 Mana)
-                    bool canUseActive = true;
-                    if (ramses.activeCoolDown > 0)
-                    {
-                        if (activeText != null) activeText.text = $"Active (Hồi: {ramses.activeCoolDown})";
-                        canUseActive = false;
-                    }
-                    else if (playerHero.Stats.CurrentMana < 40f)
-                    {
-                        if (activeText != null) activeText.text = "Active (Thiếu Mana)";
-                        canUseActive = false;
-                    }
-                    else
-                    {
-                        if (activeText != null) activeText.text = "Active Skill";
-                    }
-                    // Chỉ sáng lên khi đủ điều kiện VÀ đang là lượt của người chơi
-                    btnActiveSkill.interactable = canUseActive && isPlayerTurn;
-
-                    // 2. Kiểm tra Ultimate Skill (Cần 120 Mana)
-                    bool canUseUlti = true;
-                    if (ramses.ultimateCoolDown > 0)
-                    {
-                        if (ultiText != null) ultiText.text = $"Ultimate (Hồi: {ramses.ultimateCoolDown})";
-                        canUseUlti = false;
-                    }
-                    else if (playerHero.Stats.CurrentMana < 120f)
-                    {
-                        if (ultiText != null) ultiText.text = "Ultimate (Thiếu Mana)";
-                        canUseUlti = false;
-                    }
-                    else
-                    {
-                        if (ultiText != null) ultiText.text = "Ultimate Skill";
-                    }
-                    // Chỉ sáng lên khi đủ điều kiện VÀ đang là lượt của người chơi
-                    btnUltimateSkill.interactable = canUseUlti && isPlayerTurn;
+                    if (actInfo.cd > 0) actText.text = $"Hồi chiêu: {actInfo.cd}";
+                    else if (playerHero.Stats.CurrentMana < actInfo.manaCost) actText.text = $"Thiếu Mana ({actInfo.manaCost})";
+                    else actText.text = "Kĩ năng 1";
                 }
+
+                // -- Kỹ năng Tối thượng --
+                var ultInfo = GetUltimateSkillInfo();
+                bool canUseUlt = playerHero.Stats.CurrentMana >= ultInfo.manaCost && ultInfo.cd <= 0;
+                btnUltimateSkill.interactable = canUseUlt && isPlayerTurn;
+
+                Text ultText = btnUltimateSkill.GetComponentInChildren<Text>();
+                if (ultText != null)
+                {
+                    if (ultInfo.cd > 0) ultText.text = $"Hồi chiêu: {ultInfo.cd}";
+                    else if (playerHero.Stats.CurrentMana < ultInfo.manaCost) ultText.text = $"Thiếu Mana ({ultInfo.manaCost})";
+                    else ultText.text = "Tối thượng";
+                }
+
+                if (actionCountText != null)
+                    actionCountText.text = $"Action: {currentSwipeAction + extraActions}" + (extraActions > 0 ? $" (+{extraActions})" : "");
+
 
                 if (actionCountText != null)
                 {
@@ -159,7 +197,40 @@ namespace Match3Game.Managers
             trackerText.text = $"STVL: {totalPhysDmg} | STPT: {totalMageDmg} | STC: {totalTrueDmg} | Healed: {totalHPHealed}";
             currentTurn.text = $"Current turn: {countTurn}";
             bossHPFill.fillAmount = enemyBoss.Stats.CurrentHP / enemyBoss.Stats.MaxHP;
-            bossHPText.text = $"Boss HP: {Mathf.RoundToInt(enemyBoss.Stats.CurrentHP)} / {enemyBoss.Stats.MaxHP}";
+            bossManaFill.fillAmount = enemyBoss.Stats.CurrentMana / enemyBoss.Stats.MaxMana;
+            bossHPText.text = $"{enemyBoss.HeroName}: {Mathf.RoundToInt(enemyBoss.Stats.CurrentHP)} / {enemyBoss.Stats.MaxHP}";
+            bossManaText.text = $"Mana: {Mathf.RoundToInt(enemyBoss.Stats.CurrentMana)} / {enemyBoss.Stats.MaxMana}";
+
+            if (playerHero is Herb h)
+            {
+                herbPassivePanel.SetActive(true);
+                if (h.isEnhancedA)
+                {
+                    herbPassivePhysFill.fillAmount = 1f;
+                    herbPassiveMageFill.fillAmount = 1f;
+                    herbPassivePhysFill.color = Color.red;
+                    herbPassiveMageFill.color = Color.red;
+                    herbPassiveText.text = "Physical Form Enhanced!";
+                }
+                else if (h.isEnhancedB)
+                {
+                    herbPassivePhysFill.fillAmount = 1f;
+                    herbPassiveMageFill.fillAmount = 1f;
+                    herbPassiveMageFill.color = Color.cyan;
+                    herbPassivePhysFill.color = Color.cyan;
+                    herbPassiveText.text = "Magical Form Enhanced!";
+                }
+                else
+                {
+                    herbPassivePhysFill.fillAmount = h.storedPhysDmg / 1000f;
+                    herbPassiveMageFill.fillAmount = h.storedMageDmg / 1000f;
+                    herbPassiveText.text = $"<color=red>{Mathf.RoundToInt(h.storedPhysDmg)}</color> | <color=cyan>{Mathf.RoundToInt(h.storedMageDmg)}</color>";
+                }
+            }
+            else
+            {
+                herbPassivePanel.SetActive(false);
+            }
         }
         //Khi bat dau thao tac
         public void StartAction()
@@ -168,46 +239,48 @@ namespace Match3Game.Managers
         }
         public void OnActiveSkillClicked()
         {
-            if (playerHero == null || playerHero.Stats == null || boardManager == null || btnConfirmSkill == null)
-            {
-                Debug.LogError("Thiếu reference trong TestCombatManager! Hãy kiểm tra lại Inspector.");
-                return;
-            }
-            if (!isPlayerTurn || playerHero.Stats.CurrentMana < 40f) return;
-
+            if (!isPlayerTurn) return;
             if (boardManager.pendingSkillType == SkillType.Active && btnConfirmSkill.gameObject.activeSelf)
             {
                 CancelSkillTargeting();
                 return;
             }
-            Debug.Log("Chose Active Skill, choose a place in board!");
-            boardManager.EnterSkillTargetingMode(SkillType.Active);
-            btnConfirmSkill.gameObject.SetActive(true);
-        }
-        public void OnUltimateSkillClicked()
-        {
-            if (playerHero == null || playerHero.Stats == null || boardManager == null || btnConfirmSkill == null)
-            {
-                Debug.LogError("Thiếu reference trong TestCombatManager! Hãy kiểm tra lại Inspector.");
-                return;
-            }
-            if (!isPlayerTurn || playerHero.Stats.CurrentMana < 120f) return;
 
-            if (((Ramses)playerHero).CurrentForm == RamsesForm.Normal)
+            var info = GetActiveSkillInfo();
+            if (playerHero.Stats.CurrentMana < info.manaCost || info.cd > 0) return;
+
+            if (info.needsTarget)
             {
-                ((Ramses)playerHero).CastUltimateSkill(boardManager, null);
-                UpdateUI();
+                boardManager.EnterSkillTargetingMode(SkillType.Active);
+                btnConfirmSkill.gameObject.SetActive(true);
             }
             else
             {
-                if (boardManager.pendingSkillType == SkillType.Ultimate && btnConfirmSkill.gameObject.activeSelf)
-                {
-                    CancelSkillTargeting();
-                    return;
-                }
-                Debug.Log("Chose Ultimate (Burning), choose target row / column");
+                ExecuteSkill(SkillType.Active, null);
+                UpdateUI();
+            }
+        }
+        public void OnUltimateSkillClicked()
+        {
+            if (!isPlayerTurn) return;
+            if (boardManager.pendingSkillType == SkillType.Ultimate && btnConfirmSkill.gameObject.activeSelf)
+            {
+                CancelSkillTargeting();
+                return;
+            }
+
+            var info = GetUltimateSkillInfo();
+            if (playerHero.Stats.CurrentMana < info.manaCost || info.cd > 0) return;
+
+            if (info.needsTarget)
+            {
                 boardManager.EnterSkillTargetingMode(SkillType.Ultimate);
                 btnConfirmSkill.gameObject.SetActive(true);
+            }
+            else
+            {
+                ExecuteSkill(SkillType.Ultimate, null);
+                UpdateUI();
             }
         }
 
@@ -220,14 +293,7 @@ namespace Match3Game.Managers
             boardManager.ExitSkillTargetingMode();
             btnConfirmSkill.gameObject.SetActive(false);
 
-            if (pendingSkill == SkillType.Active)
-            {
-                ((Ramses)playerHero).CastActiveSkill(boardManager, targetCell);
-            }
-            else if (pendingSkill == SkillType.Ultimate)
-            {
-                ((Ramses)playerHero).CastUltimateSkill(boardManager, targetCell);
-            }
+            ExecuteSkill(pendingSkill, targetCell);
             UpdateUI();
         }
 
@@ -284,10 +350,9 @@ namespace Match3Game.Managers
                 effectiveType = GetPriorityRuneType();
             }
 
-            switch (match.MatchedRuneType)
+            switch (effectiveType)
             {
                 case RuneType.Red:
-                case RuneType.Purple:
                     ProcessRedRune(match.TypeOfMatch, comboEfficiency, pos);
                     break;
                 case RuneType.Blue:
@@ -318,20 +383,21 @@ namespace Match3Game.Managers
                 effectiveType = GetPriorityRuneType();
             }
 
-            switch (type)
+            switch (effectiveType)
             {
                 case RuneType.Red:
-                case RuneType.Purple:
                     float dmg = (playerHero.Stats.PhysicalDamage * 0.2f) * efficiency;
                     val = dmg; color = Color.red;
                     enemyBoss.TakeDamage(dmg, DamageType.Physical);
                     RecordDamage(dmg, DamageType.Physical);
+                    if (playerHero is Herb h) h.RecordDamageForPassive(dmg, DamageType.Physical);
                     break;
                 case RuneType.Blue:
                     float magDmg = (playerHero.Stats.MagicalDamage * 0.2f) * efficiency;
                     val = magDmg; color = Color.cyan;
                     enemyBoss.TakeDamage(magDmg, DamageType.Magical);
                     RecordDamage(magDmg, DamageType.Magical);
+                    if (playerHero is Herb he) he.RecordDamageForPassive(magDmg, DamageType.Magical);
                     break;
                 case RuneType.Green:
                     float heal = (playerHero.Stats.HPRegen * 0.2f) * efficiency;
@@ -381,23 +447,24 @@ namespace Match3Game.Managers
         }
         private void ExecuteBossTurn()
         {
-            float currentDmg = bossBaseDmg + ((countTurn - 1) * bossDmgIncrement);
-            Debug.Log($"Boss attacked, dealing {currentDmg} PhysDmg");
-            playerHero.TakeDamage(currentDmg, DamageType.Physical);
+            // Thay vì ép kiểu cứng nhắc, uỷ quyền cho BaseEnemy tự dùng kĩ năng và đánh
+            if (enemyBoss is BaseEnemy enemy)
+            {
+                enemy.AttackPower = bossBaseDmg + ((countTurn - 1) * bossDmgIncrement);
+                enemy.ExecuteTurn(playerHero);
+            }
 
             boardManager.ApplyRandomEffectToBasicRune();
             countTurn++;
 
-            Debug.Log("Boss ended turn, change to player turn");
-
             currentSwipeAction = baseSwipeAction;
-
             isPlayerTurn = true;
-            if (playerHero is Ramses ramses)
-            {
-                ramses.OnTurnStart();
-            }
             extraActions = 0;
+
+            // Kích hoạt nội tại Hero đầu lượt
+            if (playerHero is Ramses ramses) ramses.OnTurnStart();
+            else if (playerHero is Herb herb) herb.OnTurnStart(boardManager);
+
             UpdateUI();
         }
         private void TriggerOverTimeEffects()
@@ -475,12 +542,17 @@ namespace Match3Game.Managers
             SpawnPopUp(pos, finalDmg, damageType == DamageType.TrueDamage ? Color.white : Color.red);
             enemyBoss.TakeDamage(finalDmg, damageType);
             RecordDamage(finalDmg, damageType);
+
+            if (playerHero is Herb h)
+            {
+                h.RecordDamageForPassive(finalDmg, DamageType.Physical);
+            }
+
             if (playerHero.Stats.LifeSteal > 0)
             {
                 float heal = finalDmg * playerHero.Stats.LifeSteal;
                 playerHero.Stats.CurrentHP = Mathf.Min(playerHero.Stats.CurrentHP + heal, playerHero.Stats.MaxHP);
                 RecordHeal(heal);
-                Debug.Log($"Hút máu hồi {heal} HP.");
             }
             Debug.Log($"[Phys Dmg] Deal {finalDmg} Dmg ({damageType})");
         }
@@ -513,13 +585,18 @@ namespace Match3Game.Managers
 
             SpawnPopUp(pos, finalDmg, Color.cyan);
             enemyBoss.TakeDamage(finalDmg, DamageType.Magical);
+
+            if (playerHero is Herb h)
+            {
+                h.RecordDamageForPassive(finalDmg, DamageType.Magical);
+            }
+
             RecordDamage(finalDmg, DamageType.Magical);
             if (playerHero.Stats.SpellVamp > 0)
             {
                 float heal = finalDmg * playerHero.Stats.LifeSteal;
                 playerHero.Stats.CurrentHP = Mathf.Min(playerHero.Stats.CurrentHP + heal, playerHero.Stats.MaxHP);
                 RecordHeal(heal);
-                Debug.Log($"Hút máu hồi {heal} HP.");
             }
             Debug.Log($"[Blue Rune] Gây {finalDmg} sát thương phép thuật.");
         }

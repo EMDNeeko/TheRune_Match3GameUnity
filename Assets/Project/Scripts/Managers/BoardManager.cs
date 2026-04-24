@@ -143,11 +143,8 @@ namespace Match3Game.Managers
                     {
                         targetedCell = clickedCell;
 
-                        // Lấy form hiện tại của Ramses từ CombatManager
-                        var ramses = GetComponent<TestCombatManager>().playerHero as Entities.Heroes.Ramses;
-                        var form = ramses != null ? ramses.CurrentForm : Entities.Heroes.RamsesForm.Normal;
 
-                        ShowHighlightArea(clickedCell, pendingSkillType, form);
+                        ShowHighlightArea(clickedCell, pendingSkillType);
                     }
                 }
                 return;
@@ -180,36 +177,34 @@ namespace Match3Game.Managers
             }
             return res;
         }
-        private void ShowHighlightArea(CellData centerCell, SkillType skill, Entities.Heroes.RamsesForm currentForm)
+        private void ShowHighlightArea(CellData centerCell, SkillType skill)
         {
             if (currentHighlight != null) Destroy(currentHighlight);
+            if (centerCell == null || combatManager == null) return;
 
-            Vector2 pos = new Vector2(centerCell.X * Spacing, centerCell.Y * Spacing);
-            currentHighlight = Instantiate(highlightPrefab, pos, Quaternion.identity);
+            Vector3 scale = combatManager.GetSkillHighlightScale(skill);
 
-            //scale vung chon theo skill
-            if (skill == SkillType.Active)
+            // Tính toán giới hạn (Min/Max) của các ô bị ảnh hưởng
+            int rangeX = Mathf.FloorToInt((scale.x - 1) / 2f);
+            int rangeY = Mathf.FloorToInt((scale.y - 1) / 2f);
+
+            // Tìm tọa độ thực tế của các ô biên
+            float minX = (centerCell.X - rangeX) * Spacing;
+            float maxX = (centerCell.X + (scale.x - 1 - rangeX)) * Spacing;
+            float minY = (centerCell.Y - rangeY) * Spacing;
+            float maxY = (centerCell.Y + (scale.y - 1 - rangeY)) * Spacing;
+
+            // Tâm của vùng Highlight là trung điểm của các biên
+            Vector2 centerPos = new Vector2((minX + maxX) / 2f, (minY + maxY) / 2f);
+
+            // Xử lý riêng cho Ultimate của Ramses (Chém cột dọc)
+            if (scale.y >= Height)
             {
-                if (currentForm == Entities.Heroes.RamsesForm.Normal)
-                {
-                    currentHighlight.transform.localScale = new Vector3(3 * Spacing, 3 * Spacing, 1);
-                }
-                else
-                {
-                    currentHighlight.transform.localScale = new Vector3(5 * Spacing, 5 * Spacing, 1);
-                }
-
+                centerPos.y = ((Height - 1) / 2f) * Spacing;
             }
-            else if (skill == SkillType.Ultimate && currentForm == Entities.Heroes.RamsesForm.Burning)
-            {
-                // Highlight 3 cột dọc chạy dài hết bảng
-                currentHighlight.transform.localScale = new Vector3(3 * Spacing, Height * Spacing, 1);
 
-                // Cần dời vị trí tâm (Y) ra giữa bảng để nó bao trọn từ dưới lên trên
-                // Trừ đi 0.5f Spacing để highlight không bị lố lên trên cùng
-                float centerY = ((Height - 1) / 2f) * Spacing;
-                currentHighlight.transform.position = new Vector2(centerCell.X * Spacing, centerY);
-            }
+            currentHighlight = Instantiate(highlightPrefab, centerPos, Quaternion.identity);
+            currentHighlight.transform.localScale = new Vector3(scale.x * Spacing, scale.y * Spacing, 1);
 
         }
         public void DesTroyAreaAndRefill(List<CellData> cellsToCollect, List<CellData> cellsToDestroy, float efficiencyMultiplier = 1f)
